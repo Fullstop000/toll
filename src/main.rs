@@ -11,10 +11,14 @@ use std::path::PathBuf;
 use claude::collect_claude_usage;
 use codex::collect_codex_usage;
 use display::{print_single, print_table};
+use pricing::list_prices;
 use usage::TokenUsage;
 
 #[derive(Parser)]
-#[command(name = "toll", about = "Token usage statistics for Claude Code and Codex CLI")]
+#[command(
+    name = "toll",
+    about = "Token usage statistics for Claude Code and Codex CLI"
+)]
 #[command(after_help = "Examples:
   toll              # all-time stats
   toll --today      # today only
@@ -33,6 +37,9 @@ struct Args {
 
     #[arg(long, conflicts_with = "claude", help = "Show Codex stats only")]
     codex: bool,
+
+    #[arg(long, help = "List all supported models and their prices, then exit")]
+    list_prices: bool,
 }
 
 fn home_dir() -> PathBuf {
@@ -43,6 +50,11 @@ fn home_dir() -> PathBuf {
 
 fn main() {
     let args = Args::parse();
+
+    if args.list_prices {
+        list_prices();
+        return;
+    }
 
     let now = Utc::now();
     let since: Option<DateTime<Utc>>;

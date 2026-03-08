@@ -13,9 +13,15 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 
 ## Installation
 
-### From source
+### One-liner (recommended)
 
 Requires [Rust](https://rustup.rs/).
+
+```sh
+cargo install toll
+```
+
+### From source
 
 ```sh
 git clone https://github.com/Fullstop000/toll.git
@@ -26,11 +32,12 @@ cargo install --path .
 ## Usage
 
 ```sh
-toll              # all-time stats
-toll --today      # today only
-toll --days 7     # last 7 days
-toll --claude     # Claude Code only
-toll --codex      # Codex CLI only
+toll                # all-time stats
+toll --today        # today only
+toll --days 7       # last 7 days
+toll --claude       # Claude Code only
+toll --codex        # Codex CLI only
+toll --list-prices  # show all supported model prices
 ```
 
 ## Example output

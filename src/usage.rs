@@ -33,7 +33,15 @@ impl TokenUsage {
     }
 
     /// Merge a single-model observation into by_model, without recursing.
-    pub fn record_model(&mut self, model: &str, inp: u64, cache_write: u64, cache_read: u64, out: u64, cost: f64) {
+    pub fn record_model(
+        &mut self,
+        model: &str,
+        inp: u64,
+        cache_write: u64,
+        cache_read: u64,
+        out: u64,
+        cost: f64,
+    ) {
         let e = self.by_model.entry(model.to_string()).or_default();
         e.input_tokens += inp + cache_write + cache_read;
         e.cached_input_tokens += cache_read;
@@ -100,7 +108,7 @@ mod tests {
 
         let mut b = TokenUsage::default();
         b.record_model("model-a", 200, 0, 0, 20, 2.0);
-        b.record_model("model-b", 50,  0, 0, 5,  0.5);
+        b.record_model("model-b", 50, 0, 0, 5, 0.5);
 
         a.add(&b);
 

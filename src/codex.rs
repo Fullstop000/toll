@@ -28,21 +28,24 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         match v.get("type").and_then(|t| t.as_str()) {
             // Model lives in turn_context (not session_meta)
             Some("turn_context") => {
-                if model.is_none() {
-                    if let Some(m) = v.get("payload").and_then(|p| p.get("model")).and_then(|m| m.as_str()) {
-                        model = Some(m.to_string());
-                    }
+                if model.is_none()
+                    && let Some(m) = v
+                        .get("payload")
+                        .and_then(|p| p.get("model"))
+                        .and_then(|m| m.as_str())
+                {
+                    model = Some(m.to_string());
                 }
             }
             Some("event_msg") => {
-                let Some(payload) = v.get("payload") else { continue };
-                if payload.get("type").and_then(|t| t.as_str()) == Some("token_count") {
-                    if let Some(total) = payload
-                        .get("info")
-                        .and_then(|i| i.get("total_token_usage"))
-                    {
-                        last_total = Some(total.clone());
-                    }
+                let Some(payload) = v.get("payload") else {
+                    continue;
+                };
+                if payload.get("type").and_then(|t| t.as_str()) == Some("token_count")
+                    && let Some(total) =
+                        payload.get("info").and_then(|i| i.get("total_token_usage"))
+                {
+                    last_total = Some(total.clone());
                 }
             }
             _ => {}
@@ -50,9 +53,18 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
     }
 
     let total = last_total?;
-    let input_tokens = total.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let cached_input_tokens = total.get("cached_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let output_tokens = total.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let input_tokens = total
+        .get("input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cached_input_tokens = total
+        .get("cached_input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let output_tokens = total
+        .get("output_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
     // OpenAI: no separate cache write charge; pure_input = total_input - cached
     let pure_input = input_tokens.saturating_sub(cached_input_tokens);
@@ -75,7 +87,14 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
 
     // Populate per-model breakdown when model is known
     if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
-        usage.record_model(m, pure_input, 0, cached_input_tokens, output_tokens, cost_usd);
+        usage.record_model(
+            m,
+            pure_input,
+            0,
+            cached_input_tokens,
+            output_tokens,
+            cost_usd,
+        );
     }
 
     Some(usage)
@@ -125,12 +144,11 @@ pub fn collect_codex_usage(sessions_dir: &PathBuf, since: Option<DateTime<Utc>>)
     {
         let path = entry.path();
 
-        if let Some(since_dt) = since {
-            if let Some(session_date) = codex_session_date(path) {
-                if session_date < since_dt {
-                    continue;
-                }
-            }
+        if let Some(since_dt) = since
+            && let Some(session_date) = codex_session_date(path)
+            && session_date < since_dt
+        {
+            continue;
         }
 
         if let Some(usage) = parse_codex_session(path) {
@@ -274,7 +292,9 @@ mod tests {
 
     #[test]
     fn session_date_parses_correctly() {
-        let path = Path::new("/home/user/.codex/sessions/2026/03/08/rollout-2026-03-08T20-55-09-019ccd84-0e5f-7870-9c33-097188e35a30.jsonl");
+        let path = Path::new(
+            "/home/user/.codex/sessions/2026/03/08/rollout-2026-03-08T20-55-09-019ccd84-0e5f-7870-9c33-097188e35a30.jsonl",
+        );
         let dt = codex_session_date(path).expect("should parse");
         assert_eq!(dt.to_rfc3339(), "2026-03-08T20:55:09+00:00");
     }
