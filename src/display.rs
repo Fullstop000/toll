@@ -55,14 +55,24 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     let row = |label: &str, c: &str, d: &str, t: &str| {
         println!(
             "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
-            label, c, d, t, lw = label_w, cw = col_w
+            label,
+            c,
+            d,
+            t,
+            lw = label_w,
+            cw = col_w
         );
     };
 
     println!();
     println!(
         "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
-        "", "Claude Code", "Codex", "Combined", lw = label_w, cw = col_w
+        "",
+        "Claude Code",
+        "Codex",
+        "Combined",
+        lw = label_w,
+        cw = col_w
     );
     println!("  {}", "═".repeat(total_w));
 
@@ -82,9 +92,21 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     );
     row(
         "  ↳ cached",
-        &format!("{} ({})", fmt_num(claude.cached_input_tokens), fmt_pct(claude.cached_input_tokens, claude.input_tokens)),
-        &format!("{} ({})", fmt_num(codex.cached_input_tokens),  fmt_pct(codex.cached_input_tokens,  codex.input_tokens)),
-        &format!("{} ({})", fmt_num(combined.cached_input_tokens), fmt_pct(combined.cached_input_tokens, combined.input_tokens)),
+        &format!(
+            "{} ({})",
+            fmt_num(claude.cached_input_tokens),
+            fmt_pct(claude.cached_input_tokens, claude.input_tokens)
+        ),
+        &format!(
+            "{} ({})",
+            fmt_num(codex.cached_input_tokens),
+            fmt_pct(codex.cached_input_tokens, codex.input_tokens)
+        ),
+        &format!(
+            "{} ({})",
+            fmt_num(combined.cached_input_tokens),
+            fmt_pct(combined.cached_input_tokens, combined.input_tokens)
+        ),
     );
     row(
         "  ↳ net (non-cached)",
@@ -115,7 +137,10 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     println!();
 
     if combined.has_unknown_cost() {
-        println!("  * pricing unavailable for {} session(s) — cost is understated", combined.unknown_cost_sessions);
+        println!(
+            "  * pricing unavailable for {} session(s) — cost is understated",
+            combined.unknown_cost_sessions
+        );
         println!();
     }
 
@@ -143,8 +168,12 @@ fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
     println!("  {}", "─".repeat(total_w));
     println!(
         "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
-        "Model", "Tokens", "Output", "Cost",
-        lw = label_w, cw = col_w
+        "Model",
+        "Tokens",
+        "Output",
+        "Cost",
+        lw = label_w,
+        cw = col_w
     );
     println!("  {}", "─".repeat(total_w));
 
@@ -160,7 +189,8 @@ fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
             fmt_num(u.total_tokens()),
             fmt_num(u.output_tokens),
             fmt_cost(u),
-            lw = label_w, cw = col_w
+            lw = label_w,
+            cw = col_w
         );
     }
     println!("  {}", "─".repeat(total_w));
@@ -199,7 +229,10 @@ pub fn print_single(label: &str, usage: &TokenUsage) {
     println!();
 
     if usage.has_unknown_cost() {
-        println!("  * pricing unavailable for {} session(s) — cost is understated", usage.unknown_cost_sessions);
+        println!(
+            "  * pricing unavailable for {} session(s) — cost is understated",
+            usage.unknown_cost_sessions
+        );
         println!();
     }
 
@@ -237,19 +270,32 @@ mod tests {
 
     #[test]
     fn fmt_cost_known() {
-        let u = TokenUsage { sessions: 1, cost_usd: 12.345, ..Default::default() };
+        let u = TokenUsage {
+            sessions: 1,
+            cost_usd: 12.345,
+            ..Default::default()
+        };
         assert_eq!(fmt_cost(&u), "$12.35");
     }
 
     #[test]
     fn fmt_cost_all_unknown() {
-        let u = TokenUsage { sessions: 2, unknown_cost_sessions: 2, ..Default::default() };
+        let u = TokenUsage {
+            sessions: 2,
+            unknown_cost_sessions: 2,
+            ..Default::default()
+        };
         assert_eq!(fmt_cost(&u), "unknown");
     }
 
     #[test]
     fn fmt_cost_partial_unknown() {
-        let u = TokenUsage { sessions: 3, cost_usd: 5.0, unknown_cost_sessions: 1, ..Default::default() };
+        let u = TokenUsage {
+            sessions: 3,
+            cost_usd: 5.0,
+            unknown_cost_sessions: 1,
+            ..Default::default()
+        };
         assert_eq!(fmt_cost(&u), "$5.00*");
     }
 
