@@ -1,6 +1,7 @@
 mod claude;
 mod codex;
 mod display;
+mod pricing;
 mod usage;
 
 use chrono::{DateTime, Local, TimeZone, Utc};

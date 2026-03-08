@@ -5,11 +5,15 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+use crate::pricing;
 use crate::usage::TokenUsage;
 
-/// Parse Codex token_count events from any BufRead source.
-/// Returns usage from the last token_count event (cumulative total for the session).
+/// Parse Codex session lines from any BufRead source.
+///
+/// Extracts the model from the first `session_meta` event and token counts
+/// from the last `token_count` event (which holds cumulative session totals).
 pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
+    let mut model: Option<String> = None;
     let mut last_total: Option<Value> = None;
 
     for line in reader.lines().map_while(Result::ok) {
@@ -21,30 +25,51 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
             continue;
         };
 
-        if v.get("type").and_then(|t| t.as_str()) == Some("event_msg") {
-            let Some(payload) = v.get("payload") else {
-                continue;
-            };
-            if payload.get("type").and_then(|t| t.as_str()) == Some("token_count") {
-                if let Some(total) = payload
-                    .get("info")
-                    .and_then(|i| i.get("total_token_usage"))
-                {
-                    last_total = Some(total.clone());
+        match v.get("type").and_then(|t| t.as_str()) {
+            // Model lives in turn_context (not session_meta)
+            Some("turn_context") => {
+                if model.is_none() {
+                    if let Some(m) = v.get("payload").and_then(|p| p.get("model")).and_then(|m| m.as_str()) {
+                        model = Some(m.to_string());
+                    }
                 }
             }
+            Some("event_msg") => {
+                let Some(payload) = v.get("payload") else { continue };
+                if payload.get("type").and_then(|t| t.as_str()) == Some("token_count") {
+                    if let Some(total) = payload
+                        .get("info")
+                        .and_then(|i| i.get("total_token_usage"))
+                    {
+                        last_total = Some(total.clone());
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
     let total = last_total?;
+    let input_tokens = total.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cached_input_tokens = total.get("cached_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let output_tokens = total.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    // OpenAI: no separate cache write charge; pure_input = total_input - cached
+    let pure_input = input_tokens.saturating_sub(cached_input_tokens);
+
+    let (cost_usd, unknown_cost_sessions) = match model.as_deref().and_then(pricing::lookup) {
+        Some(p) => (p.cost(pure_input, 0, cached_input_tokens, output_tokens), 0),
+        None => (0.0, 1),
+    };
+
     Some(TokenUsage {
-        input_tokens: total.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-        cached_input_tokens: total
-            .get("cached_input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
-        output_tokens: total.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+        input_tokens,
+        cached_input_tokens,
+        cache_write_tokens: 0,
+        output_tokens,
         sessions: 1,
+        cost_usd,
+        unknown_cost_sessions,
     })
 }
 
@@ -117,6 +142,128 @@ mod tests {
         Cursor::new(s.as_bytes().to_vec())
     }
 
+    fn token_count_line(inp: u64, cached: u64, out: u64) -> String {
+        serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": inp,
+                        "cached_input_tokens": cached,
+                        "output_tokens": out
+                    }
+                }
+            }
+        })
+        .to_string()
+    }
+
+    fn turn_context_line(model: &str) -> String {
+        serde_json::json!({
+            "type": "turn_context",
+            "payload": { "turn_id": "abc", "model": model }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn parses_last_token_count() {
+        let data = format!(
+            "{}\n{}\n{}\n",
+            turn_context_line("gpt-4o"),
+            token_count_line(100, 80, 10),
+            token_count_line(200, 150, 25),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert_eq!(usage.input_tokens, 200);
+        assert_eq!(usage.cached_input_tokens, 150);
+        assert_eq!(usage.output_tokens, 25);
+        assert_eq!(usage.sessions, 1);
+    }
+
+    #[test]
+    fn computes_cost_for_known_model() {
+        // gpt-4o: $2.50/M input, $1.25/M cached, $10/M output
+        // 1M input (0 cached) + 0 output → $2.50
+        let data = format!(
+            "{}\n{}\n",
+            turn_context_line("gpt-4o"),
+            token_count_line(1_000_000, 0, 0),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert!((usage.cost_usd - 2.50).abs() < 0.001);
+        assert_eq!(usage.unknown_cost_sessions, 0);
+    }
+
+    #[test]
+    fn cost_with_cache_discount() {
+        // gpt-4o: 500K non-cached + 500K cached + 100K output
+        // = 500K*$2.50 + 500K*$1.25 + 100K*$10 = $1.25 + $0.625 + $1.00 = $2.875
+        let data = format!(
+            "{}\n{}\n",
+            turn_context_line("gpt-4o"),
+            token_count_line(1_000_000, 500_000, 100_000),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        let expected = 500_000.0 * 2.50 / 1e6 + 500_000.0 * 1.25 / 1e6 + 100_000.0 * 10.0 / 1e6;
+        assert!((usage.cost_usd - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn marks_unknown_cost_when_model_missing() {
+        let data = format!("{}\n", token_count_line(1000, 0, 100));
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert_eq!(usage.cost_usd, 0.0);
+        assert_eq!(usage.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn marks_unknown_cost_for_unknown_model() {
+        let data = format!(
+            "{}\n{}\n",
+            turn_context_line("future-model-xyz"),
+            token_count_line(1000, 0, 100),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert_eq!(usage.cost_usd, 0.0);
+        assert_eq!(usage.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn gpt5_variant_uses_prefix_pricing() {
+        // "gpt-5.4" should match "gpt-5" prefix → $1.25/M input
+        let data = format!(
+            "{}\n{}\n",
+            turn_context_line("gpt-5.4"),
+            token_count_line(1_000_000, 0, 0),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert!((usage.cost_usd - 1.25).abs() < 0.001);
+        assert_eq!(usage.unknown_cost_sessions, 0);
+    }
+
+    #[test]
+    fn ignores_non_token_count_events() {
+        let data = r#"
+{"type":"event_msg","payload":{"type":"task_started","turn_id":"abc"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant"}}
+"#;
+        assert!(parse_codex_lines(cursor(data)).is_none());
+    }
+
+    #[test]
+    fn skips_malformed_lines() {
+        let data = format!("not json\n{}\n", token_count_line(50, 0, 5));
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse despite bad line");
+        assert_eq!(usage.input_tokens, 50);
+    }
+
+    #[test]
+    fn empty_input_returns_none() {
+        assert!(parse_codex_lines(cursor("")).is_none());
+    }
+
     #[test]
     fn session_date_parses_correctly() {
         let path = Path::new("/home/user/.codex/sessions/2026/03/08/rollout-2026-03-08T20-55-09-019ccd84-0e5f-7870-9c33-097188e35a30.jsonl");
@@ -134,39 +281,5 @@ mod tests {
     fn session_date_rejects_short_name() {
         let path = Path::new("/home/user/.codex/sessions/2026/03/08/rollout-short.jsonl");
         assert!(codex_session_date(path).is_none());
-    }
-
-    #[test]
-    fn parses_last_token_count() {
-        let data = r#"
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":10},"last_token_usage":{}}}}
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200,"cached_input_tokens":150,"output_tokens":25},"last_token_usage":{}}}}
-"#;
-        let usage = parse_codex_lines(cursor(data)).expect("should parse");
-        assert_eq!(usage.input_tokens, 200);
-        assert_eq!(usage.cached_input_tokens, 150);
-        assert_eq!(usage.output_tokens, 25);
-        assert_eq!(usage.sessions, 1);
-    }
-
-    #[test]
-    fn ignores_non_token_count_events() {
-        let data = r#"
-{"type":"event_msg","payload":{"type":"task_started","turn_id":"abc"}}
-{"type":"response_item","payload":{"type":"message","role":"assistant"}}
-"#;
-        assert!(parse_codex_lines(cursor(data)).is_none());
-    }
-
-    #[test]
-    fn skips_malformed_lines() {
-        let data = "not json\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":50,\"cached_input_tokens\":0,\"output_tokens\":5}}}}\n";
-        let usage = parse_codex_lines(cursor(data)).expect("should parse despite bad line");
-        assert_eq!(usage.input_tokens, 50);
-    }
-
-    #[test]
-    fn empty_input_returns_none() {
-        assert!(parse_codex_lines(cursor("")).is_none());
     }
 }
