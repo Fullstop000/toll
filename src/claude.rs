@@ -57,12 +57,15 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
         usage.cache_write_tokens += cache_create;
         usage.output_tokens += out;
 
-        // Cost: look up model per message (different turns may use different models).
-        // Skip internal synthetic model values (e.g. "<synthetic>").
+        // Cost + per-model breakdown. Skip internal synthetic values (e.g. "<synthetic>").
         let model = msg.get("model").and_then(|m| m.as_str()).unwrap_or("");
         if !model.is_empty() && !model.starts_with('<') {
             match pricing::lookup(model) {
-                Some(p) => usage.cost_usd += p.cost(inp, cache_create, cache_read, out),
+                Some(p) => {
+                    let cost = p.cost(inp, cache_create, cache_read, out);
+                    usage.cost_usd += cost;
+                    usage.record_model(model, inp, cache_create, cache_read, out, cost);
+                }
                 None => has_unknown_model = true,
             }
         }

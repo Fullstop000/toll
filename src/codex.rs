@@ -62,7 +62,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         None => (0.0, 1),
     };
 
-    Some(TokenUsage {
+    let mut usage = TokenUsage {
         input_tokens,
         cached_input_tokens,
         cache_write_tokens: 0,
@@ -70,7 +70,15 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         sessions: 1,
         cost_usd,
         unknown_cost_sessions,
-    })
+        ..Default::default()
+    };
+
+    // Populate per-model breakdown when model is known
+    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+        usage.record_model(m, pure_input, 0, cached_input_tokens, output_tokens, cost_usd);
+    }
+
+    Some(usage)
 }
 
 /// Parse a Codex session file, return total token usage from last token_count event.

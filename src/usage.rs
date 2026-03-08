@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 #[derive(Default, Debug)]
 pub struct TokenUsage {
     /// Total input tokens sent (= pure_input + cache_write + cache_read)
@@ -12,6 +14,8 @@ pub struct TokenUsage {
     pub cost_usd: f64,
     /// Sessions whose model pricing was not found
     pub unknown_cost_sessions: u32,
+    /// Per-model breakdown (model name → usage); inner entries keep by_model empty.
+    pub by_model: BTreeMap<String, TokenUsage>,
 }
 
 impl TokenUsage {
@@ -23,6 +27,20 @@ impl TokenUsage {
         self.sessions += other.sessions;
         self.cost_usd += other.cost_usd;
         self.unknown_cost_sessions += other.unknown_cost_sessions;
+        for (model, usage) in &other.by_model {
+            self.by_model.entry(model.clone()).or_default().add(usage);
+        }
+    }
+
+    /// Merge a single-model observation into by_model, without recursing.
+    pub fn record_model(&mut self, model: &str, inp: u64, cache_write: u64, cache_read: u64, out: u64, cost: f64) {
+        let e = self.by_model.entry(model.to_string()).or_default();
+        e.input_tokens += inp + cache_write + cache_read;
+        e.cached_input_tokens += cache_read;
+        e.cache_write_tokens += cache_write;
+        e.output_tokens += out;
+        e.sessions += 1;
+        e.cost_usd += cost;
     }
 
     pub fn total_tokens(&self) -> u64 {
@@ -44,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add() {
+    fn add_scalars() {
         let mut a = TokenUsage {
             input_tokens: 100,
             cached_input_tokens: 80,
@@ -53,6 +71,7 @@ mod tests {
             sessions: 1,
             cost_usd: 1.5,
             unknown_cost_sessions: 0,
+            ..Default::default()
         };
         let b = TokenUsage {
             input_tokens: 50,
@@ -62,6 +81,7 @@ mod tests {
             sessions: 1,
             cost_usd: 0.5,
             unknown_cost_sessions: 1,
+            ..Default::default()
         };
         a.add(&b);
         assert_eq!(a.input_tokens, 150);
@@ -71,6 +91,36 @@ mod tests {
         assert_eq!(a.sessions, 2);
         assert!((a.cost_usd - 2.0).abs() < 1e-9);
         assert_eq!(a.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn add_merges_by_model() {
+        let mut a = TokenUsage::default();
+        a.record_model("model-a", 100, 0, 0, 10, 1.0);
+
+        let mut b = TokenUsage::default();
+        b.record_model("model-a", 200, 0, 0, 20, 2.0);
+        b.record_model("model-b", 50,  0, 0, 5,  0.5);
+
+        a.add(&b);
+
+        assert_eq!(a.by_model.len(), 2);
+        assert_eq!(a.by_model["model-a"].input_tokens, 300);
+        assert_eq!(a.by_model["model-a"].sessions, 2);
+        assert!((a.by_model["model-a"].cost_usd - 3.0).abs() < 1e-9);
+        assert_eq!(a.by_model["model-b"].input_tokens, 50);
+    }
+
+    #[test]
+    fn record_model_accumulates() {
+        let mut u = TokenUsage::default();
+        u.record_model("gpt-5", 100, 0, 50, 10, 1.0);
+        u.record_model("gpt-5", 200, 0, 80, 20, 2.0);
+        let m = &u.by_model["gpt-5"];
+        assert_eq!(m.input_tokens, 430); // (100+0+50)+(200+0+80)
+        assert_eq!(m.cached_input_tokens, 130);
+        assert_eq!(m.sessions, 2);
+        assert!((m.cost_usd - 3.0).abs() < 1e-9);
     }
 
     #[test]

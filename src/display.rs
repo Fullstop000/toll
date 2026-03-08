@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::usage::TokenUsage;
 
 pub fn fmt_num(n: u64) -> String {
@@ -43,6 +45,7 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
         sessions: claude.sessions + codex.sessions,
         cost_usd: claude.cost_usd + codex.cost_usd,
         unknown_cost_sessions: claude.unknown_cost_sessions + codex.unknown_cost_sessions,
+        ..Default::default()
     };
 
     let col_w = 15usize;
@@ -111,11 +114,57 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     );
     println!();
 
-    let has_unknown = combined.has_unknown_cost();
-    if has_unknown {
+    if combined.has_unknown_cost() {
         println!("  * pricing unavailable for {} session(s) — cost is understated", combined.unknown_cost_sessions);
         println!();
     }
+
+    // Merge both breakdowns and display
+    let mut all_models: BTreeMap<String, TokenUsage> = BTreeMap::new();
+    for (m, u) in &claude.by_model {
+        all_models.entry(m.clone()).or_default().add(u);
+    }
+    for (m, u) in &codex.by_model {
+        all_models.entry(m.clone()).or_default().add(u);
+    }
+    print_model_breakdown(&all_models);
+}
+
+fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
+    if by_model.is_empty() {
+        return;
+    }
+
+    let col_w = 15usize;
+    let label_w = 28usize;
+    let total_w = label_w + 2 + (col_w + 2) * 3;
+
+    println!("  By model:");
+    println!("  {}", "─".repeat(total_w));
+    println!(
+        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
+        "Model", "Tokens", "Output", "Cost",
+        lw = label_w, cw = col_w
+    );
+    println!("  {}", "─".repeat(total_w));
+
+    for (model, u) in by_model {
+        let label = if model.len() > label_w {
+            format!("…{}", &model[model.len() - (label_w - 1)..])
+        } else {
+            model.clone()
+        };
+        println!(
+            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
+            label,
+            fmt_num(u.total_tokens()),
+            fmt_num(u.output_tokens),
+            fmt_cost(u),
+            lw = label_w, cw = col_w
+        );
+    }
+    println!("  {}", "─".repeat(total_w));
+    println!();
 }
 
 pub fn print_single(label: &str, usage: &TokenUsage) {
@@ -153,6 +202,8 @@ pub fn print_single(label: &str, usage: &TokenUsage) {
         println!("  * pricing unavailable for {} session(s) — cost is understated", usage.unknown_cost_sessions);
         println!();
     }
+
+    print_model_breakdown(&usage.by_model);
 }
 
 #[cfg(test)]

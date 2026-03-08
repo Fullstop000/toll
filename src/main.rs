@@ -73,6 +73,8 @@ fn main() {
 
     let home = home_dir();
 
+    let t0 = std::time::Instant::now();
+
     let claude_usage = if show_claude {
         collect_claude_usage(&home.join(".claude").join("projects"), since)
     } else {
@@ -85,6 +87,8 @@ fn main() {
         TokenUsage::default()
     };
 
+    let elapsed = t0.elapsed();
+
     if !show_claude {
         print_single("Codex", &codex_usage);
     } else if !show_codex {
@@ -92,4 +96,12 @@ fn main() {
     } else {
         print_table(&claude_usage, &codex_usage);
     }
+
+    let sessions_total = claude_usage.sessions + codex_usage.sessions;
+    println!(
+        "  Scanned {} session(s) in {:.2}s",
+        sessions_total,
+        elapsed.as_secs_f64()
+    );
+    println!();
 }
