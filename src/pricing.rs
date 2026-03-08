@@ -81,6 +81,42 @@ static PRICING: &[(&str, ModelPricing)] = &[
     ("o1",              ModelPricing { input_per_m: 15.0, cache_write_per_m: 0.0, cache_read_per_m: 7.50,  output_per_m: 60.0 }),
 ];
 
+/// Print all known model prices as a formatted table.
+pub fn list_prices() {
+    let col = 14usize;
+    let label_w = 28usize;
+    let total_w = label_w + 2 + (col + 2) * 4;
+
+    println!();
+    println!(
+        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}  {:>cw$}",
+        "Model", "Input/M", "CacheWrite/M", "CacheRead/M", "Output/M",
+        lw = label_w, cw = col
+    );
+    println!("  {}", "═".repeat(total_w));
+
+    for (name, p) in PRICING {
+        let cache_write = if p.cache_write_per_m > 0.0 {
+            format!("${:.3}", p.cache_write_per_m)
+        } else {
+            "—".to_string()
+        };
+        println!(
+            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}  {:>cw$}",
+            name,
+            format!("${:.3}", p.input_per_m),
+            cache_write,
+            format!("${:.3}", p.cache_read_per_m),
+            format!("${:.3}", p.output_per_m),
+            lw = label_w, cw = col
+        );
+    }
+    println!("  {}", "─".repeat(total_w));
+    println!("  All prices are USD per 1 million tokens.");
+    println!("  CacheWrite/M: — means cache writes are billed at the standard input rate.");
+    println!();
+}
+
 /// Look up pricing for a model by name.
 ///
 /// Matching rules (in order):
