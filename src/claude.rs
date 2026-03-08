@@ -10,7 +10,10 @@ use crate::usage::TokenUsage;
 
 /// Parse Claude usage entries from any BufRead source.
 pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> TokenUsage {
-    let mut usage = TokenUsage { sessions: 1, ..Default::default() };
+    let mut usage = TokenUsage {
+        sessions: 1,
+        ..Default::default()
+    };
     let mut has_unknown_model = false;
 
     for line in reader.lines().map_while(Result::ok) {
@@ -29,16 +32,17 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
                     .and_then(|m| m.get("timestamp"))
                     .and_then(|t| t.as_str())
             });
-            if let Some(ts) = ts_str {
-                if let Ok(dt) = ts.parse::<DateTime<Utc>>() {
-                    if dt < since_dt {
-                        continue;
-                    }
-                }
+            if let Some(ts) = ts_str
+                && let Ok(dt) = ts.parse::<DateTime<Utc>>()
+                && dt < since_dt
+            {
+                continue;
             }
         }
 
-        let Some(msg) = v.get("message") else { continue };
+        let Some(msg) = v.get("message") else {
+            continue;
+        };
         let Some(u) = msg.get("usage") else { continue };
 
         let inp = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -80,7 +84,10 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
 /// Parse a Claude session file, summing all message.usage entries.
 pub fn parse_claude_session(path: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
     let Ok(file) = fs::File::open(path) else {
-        return TokenUsage { sessions: 1, ..Default::default() };
+        return TokenUsage {
+            sessions: 1,
+            ..Default::default()
+        };
     };
     parse_claude_lines(BufReader::new(file), since)
 }
@@ -121,7 +128,14 @@ mod tests {
         Cursor::new(s.as_bytes().to_vec())
     }
 
-    fn make_line(ts: &str, model: &str, inp: u64, cache_create: u64, cache_read: u64, out: u64) -> String {
+    fn make_line(
+        ts: &str,
+        model: &str,
+        inp: u64,
+        cache_create: u64,
+        cache_read: u64,
+        out: u64,
+    ) -> String {
         serde_json::json!({
             "timestamp": ts,
             "message": {
@@ -142,13 +156,20 @@ mod tests {
     fn sums_all_messages() {
         let data = format!(
             "{}\n{}\n",
-            make_line("2026-03-09T01:00:00Z", "claude-sonnet-4-6", 100, 50, 200, 30),
+            make_line(
+                "2026-03-09T01:00:00Z",
+                "claude-sonnet-4-6",
+                100,
+                50,
+                200,
+                30
+            ),
             make_line("2026-03-09T02:00:00Z", "claude-sonnet-4-6", 80, 20, 100, 15),
         );
         let usage = parse_claude_lines(cursor(&data), None);
-        assert_eq!(usage.input_tokens, 550);       // (100+50+200) + (80+20+100)
+        assert_eq!(usage.input_tokens, 550); // (100+50+200) + (80+20+100)
         assert_eq!(usage.cached_input_tokens, 300); // 200 + 100
-        assert_eq!(usage.cache_write_tokens, 70);   // 50 + 20
+        assert_eq!(usage.cache_write_tokens, 70); // 50 + 20
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.sessions, 1);
     }
@@ -158,7 +179,14 @@ mod tests {
         let data = format!(
             "{}\n",
             // 1M inp, 0 cache_write, 0 cache_read, 0 out → $3.00
-            make_line("2026-03-09T01:00:00Z", "claude-sonnet-4-6", 1_000_000, 0, 0, 0),
+            make_line(
+                "2026-03-09T01:00:00Z",
+                "claude-sonnet-4-6",
+                1_000_000,
+                0,
+                0,
+                0
+            ),
         );
         let usage = parse_claude_lines(cursor(&data), None);
         assert!((usage.cost_usd - 3.0).abs() < 0.001);
@@ -191,7 +219,10 @@ mod tests {
 
     #[test]
     fn date_filter_includes_exact_boundary() {
-        let data = format!("{}\n", make_line("2026-03-09T00:00:00Z", "claude-sonnet-4-6", 100, 0, 0, 10));
+        let data = format!(
+            "{}\n",
+            make_line("2026-03-09T00:00:00Z", "claude-sonnet-4-6", 100, 0, 0, 10)
+        );
         let since: DateTime<Utc> = "2026-03-09T00:00:00Z".parse().unwrap();
         let usage = parse_claude_lines(cursor(&data), Some(since));
         assert_eq!(usage.input_tokens, 100);
@@ -206,7 +237,10 @@ mod tests {
 
     #[test]
     fn skips_malformed_lines() {
-        let data = format!("bad json\n{}\n", make_line("2026-03-09T01:00:00Z", "claude-sonnet-4-6", 100, 0, 0, 10));
+        let data = format!(
+            "bad json\n{}\n",
+            make_line("2026-03-09T01:00:00Z", "claude-sonnet-4-6", 100, 0, 0, 10)
+        );
         let usage = parse_claude_lines(cursor(&data), None);
         assert_eq!(usage.input_tokens, 100);
     }

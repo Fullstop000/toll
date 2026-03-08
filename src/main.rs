@@ -15,7 +15,10 @@ use pricing::list_prices;
 use usage::TokenUsage;
 
 #[derive(Parser)]
-#[command(name = "toll", about = "Token usage statistics for Claude Code and Codex CLI")]
+#[command(
+    name = "toll",
+    about = "Token usage statistics for Claude Code and Codex CLI"
+)]
 #[command(after_help = "Examples:
   toll              # all-time stats
   toll --today      # today only

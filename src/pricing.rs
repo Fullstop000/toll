@@ -38,47 +38,222 @@ impl ModelPricing {
 static PRICING: &[(&str, ModelPricing)] = &[
     // ── Anthropic Claude ──────────────────────────────────────────────────────
     // Opus 4.6 / 4.5  $5 in / $25 out  cache_write $6.25  cache_read $0.50
-    ("claude-opus-4-6", ModelPricing { input_per_m: 5.0,  cache_write_per_m: 6.25,  cache_read_per_m: 0.50, output_per_m: 25.0 }),
-    ("claude-opus-4-5", ModelPricing { input_per_m: 5.0,  cache_write_per_m: 6.25,  cache_read_per_m: 0.50, output_per_m: 25.0 }),
+    (
+        "claude-opus-4-6",
+        ModelPricing {
+            input_per_m: 5.0,
+            cache_write_per_m: 6.25,
+            cache_read_per_m: 0.50,
+            output_per_m: 25.0,
+        },
+    ),
+    (
+        "claude-opus-4-5",
+        ModelPricing {
+            input_per_m: 5.0,
+            cache_write_per_m: 6.25,
+            cache_read_per_m: 0.50,
+            output_per_m: 25.0,
+        },
+    ),
     // Opus 4.1 / 4  $15 in / $75 out  cache_write $18.75  cache_read $1.50
-    ("claude-opus-4-1", ModelPricing { input_per_m: 15.0, cache_write_per_m: 18.75, cache_read_per_m: 1.50, output_per_m: 75.0 }),
-    ("claude-opus-4",   ModelPricing { input_per_m: 15.0, cache_write_per_m: 18.75, cache_read_per_m: 1.50, output_per_m: 75.0 }),
+    (
+        "claude-opus-4-1",
+        ModelPricing {
+            input_per_m: 15.0,
+            cache_write_per_m: 18.75,
+            cache_read_per_m: 1.50,
+            output_per_m: 75.0,
+        },
+    ),
+    (
+        "claude-opus-4",
+        ModelPricing {
+            input_per_m: 15.0,
+            cache_write_per_m: 18.75,
+            cache_read_per_m: 1.50,
+            output_per_m: 75.0,
+        },
+    ),
     // Opus 3  $15 in / $75 out
-    ("claude-opus-3",   ModelPricing { input_per_m: 15.0, cache_write_per_m: 18.75, cache_read_per_m: 1.50, output_per_m: 75.0 }),
+    (
+        "claude-opus-3",
+        ModelPricing {
+            input_per_m: 15.0,
+            cache_write_per_m: 18.75,
+            cache_read_per_m: 1.50,
+            output_per_m: 75.0,
+        },
+    ),
     // Sonnet 4.x / 3.7  $3 in / $15 out  cache_write $3.75  cache_read $0.30
-    ("claude-sonnet-4", ModelPricing { input_per_m: 3.0,  cache_write_per_m: 3.75,  cache_read_per_m: 0.30, output_per_m: 15.0 }),
-    ("claude-sonnet-3", ModelPricing { input_per_m: 3.0,  cache_write_per_m: 3.75,  cache_read_per_m: 0.30, output_per_m: 15.0 }),
+    (
+        "claude-sonnet-4",
+        ModelPricing {
+            input_per_m: 3.0,
+            cache_write_per_m: 3.75,
+            cache_read_per_m: 0.30,
+            output_per_m: 15.0,
+        },
+    ),
+    (
+        "claude-sonnet-3",
+        ModelPricing {
+            input_per_m: 3.0,
+            cache_write_per_m: 3.75,
+            cache_read_per_m: 0.30,
+            output_per_m: 15.0,
+        },
+    ),
     // Haiku 4.5  $1 in / $5 out  cache_write $1.25  cache_read $0.10
-    ("claude-haiku-4",  ModelPricing { input_per_m: 1.0,  cache_write_per_m: 1.25,  cache_read_per_m: 0.10, output_per_m: 5.0 }),
+    (
+        "claude-haiku-4",
+        ModelPricing {
+            input_per_m: 1.0,
+            cache_write_per_m: 1.25,
+            cache_read_per_m: 0.10,
+            output_per_m: 5.0,
+        },
+    ),
     // Haiku 3.5  $0.80 in / $4 out  cache_write $1.00  cache_read $0.08
-    ("claude-haiku-3-5",ModelPricing { input_per_m: 0.80, cache_write_per_m: 1.0,   cache_read_per_m: 0.08, output_per_m: 4.0 }),
+    (
+        "claude-haiku-3-5",
+        ModelPricing {
+            input_per_m: 0.80,
+            cache_write_per_m: 1.0,
+            cache_read_per_m: 0.08,
+            output_per_m: 4.0,
+        },
+    ),
     // Haiku 3  $0.25 in / $1.25 out  cache_write $0.30  cache_read $0.03
-    ("claude-haiku-3",  ModelPricing { input_per_m: 0.25, cache_write_per_m: 0.30,  cache_read_per_m: 0.03, output_per_m: 1.25 }),
-
+    (
+        "claude-haiku-3",
+        ModelPricing {
+            input_per_m: 0.25,
+            cache_write_per_m: 0.30,
+            cache_read_per_m: 0.03,
+            output_per_m: 1.25,
+        },
+    ),
     // ── OpenAI (cache_write_per_m = 0.0; no separate write charge) ────────────
     // GPT-5.2 Pro  $21 in / $168 out  cache_read $2.10
-    ("gpt-5.2-pro",     ModelPricing { input_per_m: 21.0, cache_write_per_m: 0.0, cache_read_per_m: 2.10,  output_per_m: 168.0 }),
+    (
+        "gpt-5.2-pro",
+        ModelPricing {
+            input_per_m: 21.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 2.10,
+            output_per_m: 168.0,
+        },
+    ),
     // GPT-5.2  $1.75 in / $14 out  cache_read $0.175
-    ("gpt-5.2",         ModelPricing { input_per_m: 1.75, cache_write_per_m: 0.0, cache_read_per_m: 0.175, output_per_m: 14.0 }),
+    (
+        "gpt-5.2",
+        ModelPricing {
+            input_per_m: 1.75,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.175,
+            output_per_m: 14.0,
+        },
+    ),
     // GPT-5.1 / GPT-5  $1.25 in / $10 out  cache_read $0.125
-    ("gpt-5.1",         ModelPricing { input_per_m: 1.25, cache_write_per_m: 0.0, cache_read_per_m: 0.125, output_per_m: 10.0 }),
-    ("gpt-5",           ModelPricing { input_per_m: 1.25, cache_write_per_m: 0.0, cache_read_per_m: 0.125, output_per_m: 10.0 }),
+    (
+        "gpt-5.1",
+        ModelPricing {
+            input_per_m: 1.25,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.125,
+            output_per_m: 10.0,
+        },
+    ),
+    (
+        "gpt-5",
+        ModelPricing {
+            input_per_m: 1.25,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.125,
+            output_per_m: 10.0,
+        },
+    ),
     // GPT-4.1-mini  $0.40 in / $1.60 out  cache_read $0.10
-    ("gpt-4.1-mini",    ModelPricing { input_per_m: 0.40, cache_write_per_m: 0.0, cache_read_per_m: 0.10,  output_per_m: 1.60 }),
+    (
+        "gpt-4.1-mini",
+        ModelPricing {
+            input_per_m: 0.40,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.10,
+            output_per_m: 1.60,
+        },
+    ),
     // GPT-4.1  $2 in / $8 out  cache_read $0.20
-    ("gpt-4.1",         ModelPricing { input_per_m: 2.00, cache_write_per_m: 0.0, cache_read_per_m: 0.20,  output_per_m: 8.0 }),
+    (
+        "gpt-4.1",
+        ModelPricing {
+            input_per_m: 2.00,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.20,
+            output_per_m: 8.0,
+        },
+    ),
     // GPT-4o-mini  $0.15 in / $0.60 out  cache_read $0.075
-    ("gpt-4o-mini",     ModelPricing { input_per_m: 0.15, cache_write_per_m: 0.0, cache_read_per_m: 0.075, output_per_m: 0.60 }),
+    (
+        "gpt-4o-mini",
+        ModelPricing {
+            input_per_m: 0.15,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.075,
+            output_per_m: 0.60,
+        },
+    ),
     // GPT-4o  $2.50 in / $10 out  cache_read $1.25
-    ("gpt-4o",          ModelPricing { input_per_m: 2.50, cache_write_per_m: 0.0, cache_read_per_m: 1.25,  output_per_m: 10.0 }),
+    (
+        "gpt-4o",
+        ModelPricing {
+            input_per_m: 2.50,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 1.25,
+            output_per_m: 10.0,
+        },
+    ),
     // o3-pro  $20 in / $80 out
-    ("o3-pro",          ModelPricing { input_per_m: 20.0, cache_write_per_m: 0.0, cache_read_per_m: 5.0,   output_per_m: 80.0 }),
+    (
+        "o3-pro",
+        ModelPricing {
+            input_per_m: 20.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 5.0,
+            output_per_m: 80.0,
+        },
+    ),
     // o3  $2 in / $8 out  cache_read $0.50
-    ("o3",              ModelPricing { input_per_m: 2.00, cache_write_per_m: 0.0, cache_read_per_m: 0.50,  output_per_m: 8.0 }),
+    (
+        "o3",
+        ModelPricing {
+            input_per_m: 2.00,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.50,
+            output_per_m: 8.0,
+        },
+    ),
     // o4-mini  $1.10 in / $4.40 out  cache_read $0.275
-    ("o4-mini",         ModelPricing { input_per_m: 1.10, cache_write_per_m: 0.0, cache_read_per_m: 0.275, output_per_m: 4.40 }),
+    (
+        "o4-mini",
+        ModelPricing {
+            input_per_m: 1.10,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.275,
+            output_per_m: 4.40,
+        },
+    ),
     // o1  $15 in / $60 out  cache_read $7.50
-    ("o1",              ModelPricing { input_per_m: 15.0, cache_write_per_m: 0.0, cache_read_per_m: 7.50,  output_per_m: 60.0 }),
+    (
+        "o1",
+        ModelPricing {
+            input_per_m: 15.0,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 7.50,
+            output_per_m: 60.0,
+        },
+    ),
 ];
 
 /// Print all known model prices as a formatted table.
@@ -90,8 +265,13 @@ pub fn list_prices() {
     println!();
     println!(
         "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}  {:>cw$}",
-        "Model", "Input/M", "CacheWrite/M", "CacheRead/M", "Output/M",
-        lw = label_w, cw = col
+        "Model",
+        "Input/M",
+        "CacheWrite/M",
+        "CacheRead/M",
+        "Output/M",
+        lw = label_w,
+        cw = col
     );
     println!("  {}", "═".repeat(total_w));
 
@@ -108,7 +288,8 @@ pub fn list_prices() {
             cache_write,
             format!("${:.3}", p.cache_read_per_m),
             format!("${:.3}", p.output_per_m),
-            lw = label_w, cw = col
+            lw = label_w,
+            cw = col
         );
     }
     println!("  {}", "─".repeat(total_w));
