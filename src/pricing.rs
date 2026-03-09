@@ -135,6 +135,26 @@ static PRICING: &[(&str, ModelPricing)] = &[
         },
     ),
     // ── OpenAI (cache_write_per_m = 0.0; no separate write charge) ────────────
+    // GPT-5.4  $2.50 in / $15 out  cache_read $0.25
+    (
+        "gpt-5.4",
+        ModelPricing {
+            input_per_m: 2.50,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.25,
+            output_per_m: 15.0,
+        },
+    ),
+    // GPT-5.3-Codex  $1.75 in / $14 out  cache_read $0.175
+    (
+        "gpt-5.3-codex",
+        ModelPricing {
+            input_per_m: 1.75,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.175,
+            output_per_m: 14.0,
+        },
+    ),
     // GPT-5.2 Pro  $21 in / $168 out  cache_read $2.10
     (
         "gpt-5.2-pro",
@@ -340,9 +360,30 @@ mod tests {
 
     #[test]
     fn prefix_match_gpt5_variant() {
-        // "gpt-5.4" not in table → falls back to "gpt-5" prefix
-        let p = lookup("gpt-5.4").expect("should find via gpt-5 prefix");
-        assert_eq!(p.input_per_m, 1.25);
+        // Snapshot-style GPT-5.4 model names should reuse the GPT-5.4 prefix entry.
+        let p = lookup("gpt-5.4-2026-03-05").expect("should find via gpt-5.4 prefix");
+        assert_eq!(p.input_per_m, 2.50);
+    }
+
+    #[test]
+    fn pricing_table_lists_latest_gpt5_variants() {
+        let gpt_5_4 = PRICING
+            .iter()
+            .find(|(name, _)| *name == "gpt-5.4")
+            .map(|(_, pricing)| pricing)
+            .expect("gpt-5.4 should be listed explicitly");
+        assert_eq!(gpt_5_4.input_per_m, 2.50);
+        assert_eq!(gpt_5_4.cache_read_per_m, 0.25);
+        assert_eq!(gpt_5_4.output_per_m, 15.0);
+
+        let gpt_5_3_codex = PRICING
+            .iter()
+            .find(|(name, _)| *name == "gpt-5.3-codex")
+            .map(|(_, pricing)| pricing)
+            .expect("gpt-5.3-codex should be listed explicitly");
+        assert_eq!(gpt_5_3_codex.input_per_m, 1.75);
+        assert_eq!(gpt_5_3_codex.cache_read_per_m, 0.175);
+        assert_eq!(gpt_5_3_codex.output_per_m, 14.0);
     }
 
     #[test]
