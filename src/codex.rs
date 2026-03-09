@@ -258,14 +258,14 @@ mod tests {
 
     #[test]
     fn gpt5_variant_uses_prefix_pricing() {
-        // "gpt-5.4" should match "gpt-5" prefix → $1.25/M input
+        // "gpt-5.4" is explicitly priced and should use its own rate.
         let data = format!(
             "{}\n{}\n",
             turn_context_line("gpt-5.4"),
             token_count_line(1_000_000, 0, 0),
         );
         let usage = parse_codex_lines(cursor(&data)).expect("should parse");
-        assert!((usage.cost_usd - 1.25).abs() < 0.001);
+        assert!((usage.cost_usd - 2.50).abs() < 0.001);
         assert_eq!(usage.unknown_cost_sessions, 0);
     }
 
