@@ -302,7 +302,10 @@ pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
     println!("  {}", "═".repeat(total_w));
     row("Sessions", &fmt_num(usage.sessions as u64));
     println!("  {}", "─".repeat(total_w));
-    row("Input tokens", &fmt_num_with_format(usage.input_tokens, format));
+    row(
+        "Input tokens",
+        &fmt_num_with_format(usage.input_tokens, format),
+    );
     row(
         "  ↳ cached",
         &fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens, format),
@@ -311,9 +314,15 @@ pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
         "  ↳ net (non-cached)",
         &fmt_num_with_format(usage.net_input_tokens(), format),
     );
-    row("Output tokens", &fmt_num_with_format(usage.output_tokens, format));
+    row(
+        "Output tokens",
+        &fmt_num_with_format(usage.output_tokens, format),
+    );
     println!("  {}", "─".repeat(total_w));
-    row("Total tokens", &fmt_num_with_format(usage.total_tokens(), format));
+    row(
+        "Total tokens",
+        &fmt_num_with_format(usage.total_tokens(), format),
+    );
     println!("  {}", "─".repeat(total_w));
     row("Estimated cost (USD)", &fmt_cost(usage));
     println!();
@@ -347,13 +356,22 @@ mod tests {
     fn fmt_num_compact_uses_suffixes() {
         assert_eq!(fmt_num_with_format(999, NumberFormat::Compact), "999");
         assert_eq!(fmt_num_with_format(1_250, NumberFormat::Compact), "1.3k");
-        assert_eq!(fmt_num_with_format(1_234_567, NumberFormat::Compact), "1.2m");
-        assert_eq!(fmt_num_with_format(1_500_000_000, NumberFormat::Compact), "1.5b");
+        assert_eq!(
+            fmt_num_with_format(1_234_567, NumberFormat::Compact),
+            "1.2m"
+        );
+        assert_eq!(
+            fmt_num_with_format(1_500_000_000, NumberFormat::Compact),
+            "1.5b"
+        );
     }
 
     #[test]
     fn fmt_num_full_keeps_raw_value() {
-        assert_eq!(fmt_num_with_format(1_234_567, NumberFormat::Full), "1,234,567");
+        assert_eq!(
+            fmt_num_with_format(1_234_567, NumberFormat::Full),
+            "1,234,567"
+        );
     }
 
     #[test]
