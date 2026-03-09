@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use claude::collect_claude_usage;
 use codex::collect_codex_usage;
-use display::{print_single, print_table};
+use display::{NumberFormat, print_single, print_table};
 use pricing::list_prices;
 use usage::TokenUsage;
 
@@ -24,7 +24,8 @@ use usage::TokenUsage;
   toll --today      # today only
   toll --days 7     # last 7 days
   toll --claude     # Claude only
-  toll --codex      # Codex only")]
+  toll --codex      # Codex only
+  toll --detail     # full token counts")]
 struct Args {
     #[arg(long, conflicts_with = "days", help = "Show today's usage only")]
     today: bool,
@@ -40,6 +41,9 @@ struct Args {
 
     #[arg(long, help = "List all supported models and their prices, then exit")]
     list_prices: bool,
+
+    #[arg(long, help = "Show full token counts instead of compact b/m/k units")]
+    detail: bool,
 }
 
 fn home_dir() -> PathBuf {
@@ -79,6 +83,11 @@ fn main() {
 
     println!("\nToken usage — {}", period);
     println!("Collected: {}", Local::now().format("%Y-%m-%d %H:%M:%S %Z"));
+    let number_format = if args.detail {
+        NumberFormat::Full
+    } else {
+        NumberFormat::Compact
+    };
 
     let show_claude = !args.codex;
     let show_codex = !args.claude;
@@ -102,11 +111,11 @@ fn main() {
     let elapsed = t0.elapsed();
 
     if !show_claude {
-        print_single("Codex", &codex_usage);
+        print_single("Codex", &codex_usage, number_format);
     } else if !show_codex {
-        print_single("Claude Code", &claude_usage);
+        print_single("Claude Code", &claude_usage, number_format);
     } else {
-        print_table(&claude_usage, &codex_usage);
+        print_table(&claude_usage, &codex_usage, number_format);
     }
 
     let sessions_total = claude_usage.sessions + codex_usage.sessions;
@@ -116,4 +125,15 @@ fn main() {
         elapsed.as_secs_f64()
     );
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_detail_flag() {
+        let args = Args::try_parse_from(["toll", "--detail"]).expect("should parse");
+        assert!(args.detail);
+    }
 }

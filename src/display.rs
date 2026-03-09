@@ -2,6 +2,14 @@ use std::collections::BTreeMap;
 
 use crate::usage::TokenUsage;
 
+/// Controls whether token counts are shown in compact or full-detail form.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NumberFormat {
+    Compact,
+    Full,
+}
+
+/// Format a raw integer with comma separators.
 pub fn fmt_num(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::new();
@@ -12,6 +20,33 @@ pub fn fmt_num(n: u64) -> String {
         result.push(ch);
     }
     result.chars().rev().collect()
+}
+
+/// Format a token count according to the selected display mode.
+pub fn fmt_num_with_format(n: u64, format: NumberFormat) -> String {
+    match format {
+        NumberFormat::Full => fmt_num(n),
+        NumberFormat::Compact => {
+            const BILLION: f64 = 1_000_000_000.0;
+            const MILLION: f64 = 1_000_000.0;
+            const THOUSAND: f64 = 1_000.0;
+
+            if n >= 1_000_000_000 {
+                format!("{:.1}b", round_to_one_decimal(n as f64 / BILLION))
+            } else if n >= 1_000_000 {
+                format!("{:.1}m", round_to_one_decimal(n as f64 / MILLION))
+            } else if n >= 1_000 {
+                format!("{:.1}k", round_to_one_decimal(n as f64 / THOUSAND))
+            } else {
+                n.to_string()
+            }
+        }
+    }
+}
+
+/// Round to one decimal place using arithmetic rounding before formatting.
+fn round_to_one_decimal(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
 }
 
 pub fn fmt_pct(part: u64, total: u64) -> String {
@@ -37,32 +72,41 @@ pub fn fmt_cost(usage: &TokenUsage) -> String {
 }
 
 /// Build the cached-token cell with its hit-rate percentage.
-fn fmt_cached_tokens(cached: u64, total_input: u64) -> String {
-    format!("{} ({})", fmt_num(cached), fmt_pct(cached, total_input))
+fn fmt_cached_tokens(cached: u64, total_input: u64, format: NumberFormat) -> String {
+    format!(
+        "{} ({})",
+        fmt_num_with_format(cached, format),
+        fmt_pct(cached, total_input)
+    )
 }
 
 /// Compute the summary-table column width from headers and rendered values.
-fn summary_col_width(claude: &TokenUsage, codex: &TokenUsage, combined: &TokenUsage) -> usize {
+fn summary_col_width(
+    claude: &TokenUsage,
+    codex: &TokenUsage,
+    combined: &TokenUsage,
+    format: NumberFormat,
+) -> usize {
     let headers = ["Claude Code", "Codex", "Combined"];
     let values = [
         fmt_num(claude.sessions as u64),
         fmt_num(codex.sessions as u64),
         fmt_num(combined.sessions as u64),
-        fmt_num(claude.input_tokens),
-        fmt_num(codex.input_tokens),
-        fmt_num(combined.input_tokens),
-        fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens),
-        fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens),
-        fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens),
-        fmt_num(claude.net_input_tokens()),
-        fmt_num(codex.net_input_tokens()),
-        fmt_num(combined.net_input_tokens()),
-        fmt_num(claude.output_tokens),
-        fmt_num(codex.output_tokens),
-        fmt_num(combined.output_tokens),
-        fmt_num(claude.total_tokens()),
-        fmt_num(codex.total_tokens()),
-        fmt_num(combined.total_tokens()),
+        fmt_num_with_format(claude.input_tokens, format),
+        fmt_num_with_format(codex.input_tokens, format),
+        fmt_num_with_format(combined.input_tokens, format),
+        fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens, format),
+        fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens, format),
+        fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens, format),
+        fmt_num_with_format(claude.net_input_tokens(), format),
+        fmt_num_with_format(codex.net_input_tokens(), format),
+        fmt_num_with_format(combined.net_input_tokens(), format),
+        fmt_num_with_format(claude.output_tokens, format),
+        fmt_num_with_format(codex.output_tokens, format),
+        fmt_num_with_format(combined.output_tokens, format),
+        fmt_num_with_format(claude.total_tokens(), format),
+        fmt_num_with_format(codex.total_tokens(), format),
+        fmt_num_with_format(combined.total_tokens(), format),
         fmt_cost(claude),
         fmt_cost(codex),
         fmt_cost(combined),
@@ -77,15 +121,15 @@ fn summary_col_width(claude: &TokenUsage, codex: &TokenUsage, combined: &TokenUs
 }
 
 /// Compute the single-app column width from rendered values.
-fn single_col_width(label: &str, usage: &TokenUsage) -> usize {
+fn single_col_width(label: &str, usage: &TokenUsage, format: NumberFormat) -> usize {
     let values = [
         label.to_string(),
         fmt_num(usage.sessions as u64),
-        fmt_num(usage.input_tokens),
-        fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens),
-        fmt_num(usage.net_input_tokens()),
-        fmt_num(usage.output_tokens),
-        fmt_num(usage.total_tokens()),
+        fmt_num_with_format(usage.input_tokens, format),
+        fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens, format),
+        fmt_num_with_format(usage.net_input_tokens(), format),
+        fmt_num_with_format(usage.output_tokens, format),
+        fmt_num_with_format(usage.total_tokens(), format),
         fmt_cost(usage),
     ];
 
@@ -93,7 +137,7 @@ fn single_col_width(label: &str, usage: &TokenUsage) -> usize {
 }
 
 /// Print the side-by-side summary table for Claude Code, Codex, and the combined totals.
-pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
+pub fn print_table(claude: &TokenUsage, codex: &TokenUsage, format: NumberFormat) {
     let combined = TokenUsage {
         input_tokens: claude.input_tokens + codex.input_tokens,
         cached_input_tokens: claude.cached_input_tokens + codex.cached_input_tokens,
@@ -105,7 +149,7 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
         ..Default::default()
     };
 
-    let col_w = summary_col_width(claude, codex, &combined);
+    let col_w = summary_col_width(claude, codex, &combined, format);
     let label_w = 28usize;
     let total_w = label_w + 2 + (col_w + 2) * 3;
 
@@ -143,34 +187,34 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
 
     row(
         "Input tokens",
-        &fmt_num(claude.input_tokens),
-        &fmt_num(codex.input_tokens),
-        &fmt_num(combined.input_tokens),
+        &fmt_num_with_format(claude.input_tokens, format),
+        &fmt_num_with_format(codex.input_tokens, format),
+        &fmt_num_with_format(combined.input_tokens, format),
     );
     row(
         "  ↳ cached",
-        &fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens),
-        &fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens),
-        &fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens),
+        &fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens, format),
+        &fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens, format),
+        &fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens, format),
     );
     row(
         "  ↳ net (non-cached)",
-        &fmt_num(claude.net_input_tokens()),
-        &fmt_num(codex.net_input_tokens()),
-        &fmt_num(combined.net_input_tokens()),
+        &fmt_num_with_format(claude.net_input_tokens(), format),
+        &fmt_num_with_format(codex.net_input_tokens(), format),
+        &fmt_num_with_format(combined.net_input_tokens(), format),
     );
     row(
         "Output tokens",
-        &fmt_num(claude.output_tokens),
-        &fmt_num(codex.output_tokens),
-        &fmt_num(combined.output_tokens),
+        &fmt_num_with_format(claude.output_tokens, format),
+        &fmt_num_with_format(codex.output_tokens, format),
+        &fmt_num_with_format(combined.output_tokens, format),
     );
     println!("  {}", "─".repeat(total_w));
     row(
         "Total tokens",
-        &fmt_num(claude.total_tokens()),
-        &fmt_num(codex.total_tokens()),
-        &fmt_num(combined.total_tokens()),
+        &fmt_num_with_format(claude.total_tokens(), format),
+        &fmt_num_with_format(codex.total_tokens(), format),
+        &fmt_num_with_format(combined.total_tokens(), format),
     );
     println!("  {}", "─".repeat(total_w));
     row(
@@ -197,10 +241,11 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     for (m, u) in &codex.by_model {
         all_models.entry(m.clone()).or_default().add(u);
     }
-    print_model_breakdown(&all_models);
+    print_model_breakdown(&all_models, format);
 }
 
-fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
+/// Print the aggregated per-model breakdown table.
+fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>, format: NumberFormat) {
     if by_model.is_empty() {
         return;
     }
@@ -231,8 +276,8 @@ fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
         println!(
             "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
             label,
-            fmt_num(u.total_tokens()),
-            fmt_num(u.output_tokens),
+            fmt_num_with_format(u.total_tokens(), format),
+            fmt_num_with_format(u.output_tokens, format),
             fmt_cost(u),
             lw = label_w,
             cw = col_w
@@ -242,8 +287,9 @@ fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
     println!();
 }
 
-pub fn print_single(label: &str, usage: &TokenUsage) {
-    let col_w = single_col_width(label, usage);
+/// Print the summary table for a single tool.
+pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
+    let col_w = single_col_width(label, usage, format);
     let label_w = 28usize;
     let total_w = label_w + 2 + col_w;
 
@@ -256,15 +302,18 @@ pub fn print_single(label: &str, usage: &TokenUsage) {
     println!("  {}", "═".repeat(total_w));
     row("Sessions", &fmt_num(usage.sessions as u64));
     println!("  {}", "─".repeat(total_w));
-    row("Input tokens", &fmt_num(usage.input_tokens));
+    row("Input tokens", &fmt_num_with_format(usage.input_tokens, format));
     row(
         "  ↳ cached",
-        &fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens),
+        &fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens, format),
     );
-    row("  ↳ net (non-cached)", &fmt_num(usage.net_input_tokens()));
-    row("Output tokens", &fmt_num(usage.output_tokens));
+    row(
+        "  ↳ net (non-cached)",
+        &fmt_num_with_format(usage.net_input_tokens(), format),
+    );
+    row("Output tokens", &fmt_num_with_format(usage.output_tokens, format));
     println!("  {}", "─".repeat(total_w));
-    row("Total tokens", &fmt_num(usage.total_tokens()));
+    row("Total tokens", &fmt_num_with_format(usage.total_tokens(), format));
     println!("  {}", "─".repeat(total_w));
     row("Estimated cost (USD)", &fmt_cost(usage));
     println!();
@@ -277,7 +326,7 @@ pub fn print_single(label: &str, usage: &TokenUsage) {
         println!();
     }
 
-    print_model_breakdown(&usage.by_model);
+    print_model_breakdown(&usage.by_model, format);
 }
 
 #[cfg(test)]
@@ -292,6 +341,19 @@ mod tests {
         assert_eq!(fmt_num(1_000), "1,000");
         assert_eq!(fmt_num(1_234_567), "1,234,567");
         assert_eq!(fmt_num(1_000_000_000), "1,000,000,000");
+    }
+
+    #[test]
+    fn fmt_num_compact_uses_suffixes() {
+        assert_eq!(fmt_num_with_format(999, NumberFormat::Compact), "999");
+        assert_eq!(fmt_num_with_format(1_250, NumberFormat::Compact), "1.3k");
+        assert_eq!(fmt_num_with_format(1_234_567, NumberFormat::Compact), "1.2m");
+        assert_eq!(fmt_num_with_format(1_500_000_000, NumberFormat::Compact), "1.5b");
+    }
+
+    #[test]
+    fn fmt_num_full_keeps_raw_value() {
+        assert_eq!(fmt_num_with_format(1_234_567, NumberFormat::Full), "1,234,567");
     }
 
     #[test]
@@ -367,7 +429,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(summary_col_width(&claude, &codex, &combined) > 15);
+        assert!(summary_col_width(&claude, &codex, &combined, NumberFormat::Full) > 15);
     }
 
     #[test]
@@ -379,6 +441,6 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(single_col_width("Codex", &usage) > 15);
+        assert!(single_col_width("Codex", &usage, NumberFormat::Full) > 15);
     }
 }

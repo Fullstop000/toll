@@ -10,6 +10,7 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 
 - Tracks token usage from **Claude Code** (`~/.claude/projects/`) and **Codex CLI** (`~/.codex/sessions/`)
 - Shows input, output, cached tokens, cache hit rate, and estimated USD cost
+- Uses compact `k` / `m` / `b` token units by default, with `--detail` for raw counts
 - Per-model breakdown across all sessions
 - Filter by today, last N days, or all time
 - View per-tool or combined stats
@@ -48,6 +49,7 @@ toll --today        # today only
 toll --days 7       # last 7 days
 toll --claude       # Claude Code only
 toll --codex        # Codex CLI only
+toll --detail       # show full token counts
 toll --list-prices  # show all supported model prices
 ```
 
@@ -61,12 +63,12 @@ Collected: 2026-03-09 01:44:23 +08:00
   ═════════════════════════════════════════════════════════════════════════════════
   Sessions                                  24               14               38
   ─────────────────────────────────────────────────────────────────────────────────
-  Input tokens                     200,440,264      111,363,538      311,803,802
-    ↳ cached                   193,981,784 ( 96.8%)  103,838,208 ( 93.2%)  297,819,992 ( 95.5%)
-    ↳ net (non-cached)               6,458,480        7,525,330       13,983,810
-  Output tokens                        766,870          578,486        1,345,356
+  Input tokens                          200.4m          111.4m          311.8m
+    ↳ cached                     194.0m ( 96.8%)  103.8m ( 93.2%)  297.8m ( 95.5%)
+    ↳ net (non-cached)                  6.5m             7.5m            14.0m
+  Output tokens                          766.9k          578.5k            1.3m
   ─────────────────────────────────────────────────────────────────────────────────
-  Total tokens                     201,207,134      111,942,024      313,149,158
+  Total tokens                          201.2m          111.9m          313.1m
   ─────────────────────────────────────────────────────────────────────────────────
   Estimated cost (USD)                  $91.29           $28.17          $119.46
 
@@ -74,10 +76,10 @@ Collected: 2026-03-09 01:44:23 +08:00
   ─────────────────────────────────────────────────────────────────────────────────
   Model                                 Tokens           Output             Cost
   ─────────────────────────────────────────────────────────────────────────────────
-  claude-haiku-4-5-20251001          6,838,087           21,964            $1.72
-  claude-opus-4-6                    1,010,175           19,191            $2.09
-  claude-sonnet-4-6                193,358,872          725,715           $87.49
-  gpt-5.4                          111,942,024          578,486           $28.17
+  claude-haiku-4-5-20251001              6.8m            22.0k            $1.72
+  claude-opus-4-6                        1.0m            19.2k            $2.09
+  claude-sonnet-4-6                    194.1m           725.7k           $87.49
+  gpt-5.4                              111.9m           578.5k           $28.17
   ─────────────────────────────────────────────────────────────────────────────────
 
   Scanned 38 session(s) in 1.00s
