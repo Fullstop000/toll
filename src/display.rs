@@ -36,6 +36,63 @@ pub fn fmt_cost(usage: &TokenUsage) -> String {
     }
 }
 
+/// Build the cached-token cell with its hit-rate percentage.
+fn fmt_cached_tokens(cached: u64, total_input: u64) -> String {
+    format!("{} ({})", fmt_num(cached), fmt_pct(cached, total_input))
+}
+
+/// Compute the summary-table column width from headers and rendered values.
+fn summary_col_width(claude: &TokenUsage, codex: &TokenUsage, combined: &TokenUsage) -> usize {
+    let headers = ["Claude Code", "Codex", "Combined"];
+    let values = [
+        fmt_num(claude.sessions as u64),
+        fmt_num(codex.sessions as u64),
+        fmt_num(combined.sessions as u64),
+        fmt_num(claude.input_tokens),
+        fmt_num(codex.input_tokens),
+        fmt_num(combined.input_tokens),
+        fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens),
+        fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens),
+        fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens),
+        fmt_num(claude.net_input_tokens()),
+        fmt_num(codex.net_input_tokens()),
+        fmt_num(combined.net_input_tokens()),
+        fmt_num(claude.output_tokens),
+        fmt_num(codex.output_tokens),
+        fmt_num(combined.output_tokens),
+        fmt_num(claude.total_tokens()),
+        fmt_num(codex.total_tokens()),
+        fmt_num(combined.total_tokens()),
+        fmt_cost(claude),
+        fmt_cost(codex),
+        fmt_cost(combined),
+    ];
+
+    headers
+        .into_iter()
+        .map(str::len)
+        .chain(values.iter().map(String::len))
+        .max()
+        .unwrap_or(15)
+}
+
+/// Compute the single-app column width from rendered values.
+fn single_col_width(label: &str, usage: &TokenUsage) -> usize {
+    let values = [
+        label.to_string(),
+        fmt_num(usage.sessions as u64),
+        fmt_num(usage.input_tokens),
+        fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens),
+        fmt_num(usage.net_input_tokens()),
+        fmt_num(usage.output_tokens),
+        fmt_num(usage.total_tokens()),
+        fmt_cost(usage),
+    ];
+
+    values.iter().map(String::len).max().unwrap_or(15)
+}
+
+/// Print the side-by-side summary table for Claude Code, Codex, and the combined totals.
 pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     let combined = TokenUsage {
         input_tokens: claude.input_tokens + codex.input_tokens,
@@ -48,7 +105,7 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
         ..Default::default()
     };
 
-    let col_w = 15usize;
+    let col_w = summary_col_width(claude, codex, &combined);
     let label_w = 28usize;
     let total_w = label_w + 2 + (col_w + 2) * 3;
 
@@ -92,21 +149,9 @@ pub fn print_table(claude: &TokenUsage, codex: &TokenUsage) {
     );
     row(
         "  ↳ cached",
-        &format!(
-            "{} ({})",
-            fmt_num(claude.cached_input_tokens),
-            fmt_pct(claude.cached_input_tokens, claude.input_tokens)
-        ),
-        &format!(
-            "{} ({})",
-            fmt_num(codex.cached_input_tokens),
-            fmt_pct(codex.cached_input_tokens, codex.input_tokens)
-        ),
-        &format!(
-            "{} ({})",
-            fmt_num(combined.cached_input_tokens),
-            fmt_pct(combined.cached_input_tokens, combined.input_tokens)
-        ),
+        &fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens),
+        &fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens),
+        &fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens),
     );
     row(
         "  ↳ net (non-cached)",
@@ -198,7 +243,7 @@ fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>) {
 }
 
 pub fn print_single(label: &str, usage: &TokenUsage) {
-    let col_w = 15usize;
+    let col_w = single_col_width(label, usage);
     let label_w = 28usize;
     let total_w = label_w + 2 + col_w;
 
@@ -212,13 +257,9 @@ pub fn print_single(label: &str, usage: &TokenUsage) {
     row("Sessions", &fmt_num(usage.sessions as u64));
     println!("  {}", "─".repeat(total_w));
     row("Input tokens", &fmt_num(usage.input_tokens));
-    println!(
-        "  {:<lw$} {:>cw$} ({})",
+    row(
         "  ↳ cached",
-        fmt_num(usage.cached_input_tokens),
-        fmt_pct(usage.cached_input_tokens, usage.input_tokens),
-        lw = label_w,
-        cw = col_w
+        &fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens),
     );
     row("  ↳ net (non-cached)", &fmt_num(usage.net_input_tokens()));
     row("Output tokens", &fmt_num(usage.output_tokens));
@@ -303,5 +344,41 @@ mod tests {
     fn fmt_cost_no_sessions() {
         let u = TokenUsage::default();
         assert_eq!(fmt_cost(&u), "—");
+    }
+
+    #[test]
+    fn summary_col_width_expands_for_cached_row() {
+        let claude = TokenUsage {
+            input_tokens: 200_000_000,
+            cached_input_tokens: 193_981_784,
+            sessions: 1,
+            ..Default::default()
+        };
+        let codex = TokenUsage {
+            input_tokens: 120_000_000,
+            cached_input_tokens: 103_838_208,
+            sessions: 1,
+            ..Default::default()
+        };
+        let combined = TokenUsage {
+            input_tokens: claude.input_tokens + codex.input_tokens,
+            cached_input_tokens: claude.cached_input_tokens + codex.cached_input_tokens,
+            sessions: 2,
+            ..Default::default()
+        };
+
+        assert!(summary_col_width(&claude, &codex, &combined) > 15);
+    }
+
+    #[test]
+    fn single_col_width_expands_for_cached_row() {
+        let usage = TokenUsage {
+            input_tokens: 200_000_000,
+            cached_input_tokens: 193_981_784,
+            sessions: 1,
+            ..Default::default()
+        };
+
+        assert!(single_col_width("Codex", &usage) > 15);
     }
 }
