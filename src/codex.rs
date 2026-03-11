@@ -3,10 +3,16 @@ use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::thread;
 use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::TokenUsage;
+
+/// Fast-path filter for Codex lines worth deserializing.
+fn codex_line_is_relevant(line: &str) -> bool {
+    line.contains(r#""type":"turn_context""#) || line.contains(r#""type":"token_count""#)
+}
 
 /// Parse Codex session lines from any BufRead source.
 ///
@@ -17,11 +23,14 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
     let mut last_total: Option<Value> = None;
 
     for line in reader.lines().map_while(Result::ok) {
-        let line = line.trim().to_string();
+        let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        let Ok(v): Result<Value, _> = serde_json::from_str(&line) else {
+        if !codex_line_is_relevant(line) {
+            continue;
+        }
+        let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
 
@@ -124,14 +133,9 @@ pub fn codex_session_date(path: &Path) -> Option<DateTime<Utc>> {
     ts_str.parse::<DateTime<Utc>>().ok()
 }
 
-pub fn collect_codex_usage(sessions_dir: &PathBuf, since: Option<DateTime<Utc>>) -> TokenUsage {
-    let mut total = TokenUsage::default();
-
-    if !sessions_dir.exists() {
-        return total;
-    }
-
-    for entry in WalkDir::new(sessions_dir)
+/// Collect all rollout files that match the optional date filter.
+fn codex_session_paths(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> Vec<PathBuf> {
+    WalkDir::new(sessions_dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
@@ -141,20 +145,55 @@ pub fn collect_codex_usage(sessions_dir: &PathBuf, since: Option<DateTime<Utc>>)
                     .map(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
                     .unwrap_or(false)
         })
-    {
-        let path = entry.path();
+        .filter_map(|entry| {
+            let path = entry.into_path();
+            if let Some(since_dt) = since
+                && let Some(session_date) = codex_session_date(&path)
+                && session_date < since_dt
+            {
+                return None;
+            }
+            Some(path)
+        })
+        .collect()
+}
 
-        if let Some(since_dt) = since
-            && let Some(session_date) = codex_session_date(path)
-            && session_date < since_dt
-        {
-            continue;
-        }
-
-        if let Some(usage) = parse_codex_session(path) {
-            total.add(&usage);
-        }
+pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
+    if !sessions_dir.exists() {
+        return TokenUsage::default();
     }
+
+    let paths = codex_session_paths(sessions_dir, since);
+    if paths.is_empty() {
+        return TokenUsage::default();
+    }
+
+    let workers = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(paths.len());
+    let chunk_size = paths.len().div_ceil(workers);
+
+    let mut total = TokenUsage::default();
+    thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for chunk in paths.chunks(chunk_size) {
+            handles.push(scope.spawn(move || {
+                let mut subtotal = TokenUsage::default();
+                for path in chunk {
+                    if let Some(usage) = parse_codex_session(path) {
+                        subtotal.add(&usage);
+                    }
+                }
+                subtotal
+            }));
+        }
+
+        for handle in handles {
+            let subtotal = handle.join().expect("codex worker should not panic");
+            total.add(&subtotal);
+        }
+    });
 
     total
 }
@@ -162,7 +201,9 @@ pub fn collect_codex_usage(sessions_dir: &PathBuf, since: Option<DateTime<Utc>>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Cursor;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn cursor(s: &str) -> Cursor<Vec<u8>> {
         Cursor::new(s.as_bytes().to_vec())
@@ -191,6 +232,14 @@ mod tests {
             "payload": { "turn_id": "abc", "model": model }
         })
         .to_string()
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
     }
 
     #[test]
@@ -309,5 +358,50 @@ mod tests {
     fn session_date_rejects_short_name() {
         let path = Path::new("/home/user/.codex/sessions/2026/03/08/rollout-short.jsonl");
         assert!(codex_session_date(path).is_none());
+    }
+
+    #[test]
+    fn codex_line_relevance_filters_unrelated_lines() {
+        assert!(codex_line_is_relevant(&turn_context_line("gpt-5.4")));
+        assert!(codex_line_is_relevant(&token_count_line(100, 0, 10)));
+        assert!(!codex_line_is_relevant(
+            r#"{"type":"response_item","payload":{"type":"message"}}"#
+        ));
+        assert!(!codex_line_is_relevant("not json at all"));
+    }
+
+    #[test]
+    fn collect_codex_usage_aggregates_matching_rollout_files() {
+        let root = unique_temp_dir("toll-codex-test");
+        let day_dir = root.join("2026/03/09");
+        fs::create_dir_all(&day_dir).expect("should create temp session dir");
+
+        fs::write(
+            day_dir.join("rollout-2026-03-09T08-00-00-aaaa.jsonl"),
+            format!(
+                "{}\n{}\n",
+                turn_context_line("gpt-5.4"),
+                token_count_line(100, 25, 10)
+            ),
+        )
+        .expect("should write first rollout");
+        fs::write(
+            day_dir.join("rollout-2026-03-09T09-00-00-bbbb.jsonl"),
+            format!(
+                "{}\n{}\n",
+                turn_context_line("gpt-4o"),
+                token_count_line(300, 100, 20)
+            ),
+        )
+        .expect("should write second rollout");
+        fs::write(day_dir.join("ignore-me.jsonl"), "{}\n").expect("should write ignored file");
+
+        let usage = collect_codex_usage(&root, None);
+        assert_eq!(usage.sessions, 2);
+        assert_eq!(usage.input_tokens, 400);
+        assert_eq!(usage.cached_input_tokens, 125);
+        assert_eq!(usage.output_tokens, 30);
+
+        fs::remove_dir_all(root).expect("should clean temp session dir");
     }
 }
