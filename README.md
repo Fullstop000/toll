@@ -25,7 +25,21 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 
 ## Installation
 
-### One-liner (recommended)
+### Quick Install (Linux/macOS)
+
+Downloads the latest GitHub Release for your platform. If a prebuilt binary is not available, the installer falls back to `cargo install toll`.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Fullstop000/toll/refs/heads/master/install.sh | sh
+```
+
+Install to a custom directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Fullstop000/toll/refs/heads/master/install.sh | TOLL_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+### Cargo Install
 
 Requires [Rust](https://rustup.rs/).
 

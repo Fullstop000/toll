@@ -27,6 +27,13 @@ use usage::TokenUsage;
   toll --codex      # Codex only
   toll --detail     # full token counts")]
 struct Args {
+    #[arg(
+        short = 'v',
+        long = "version",
+        help = "Show version information and exit"
+    )]
+    version: bool,
+
     #[arg(long, conflicts_with = "days", help = "Show today's usage only")]
     today: bool,
 
@@ -52,8 +59,17 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/root"))
 }
 
+fn version_text() -> String {
+    format!("toll {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn main() {
     let args = Args::parse();
+
+    if args.version {
+        println!("{}", version_text());
+        return;
+    }
 
     if args.list_prices {
         list_prices();
@@ -135,5 +151,25 @@ mod tests {
     fn parses_detail_flag() {
         let args = Args::try_parse_from(["toll", "--detail"]).expect("should parse");
         assert!(args.detail);
+    }
+
+    #[test]
+    fn parses_long_version_flag() {
+        let args = Args::try_parse_from(["toll", "--version"]).expect("should parse");
+        assert!(args.version);
+    }
+
+    #[test]
+    fn parses_short_version_flag() {
+        let args = Args::try_parse_from(["toll", "-v"]).expect("should parse");
+        assert!(args.version);
+    }
+
+    #[test]
+    fn formats_version_output() {
+        assert_eq!(
+            version_text(),
+            format!("toll {}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }
