@@ -27,7 +27,11 @@ use usage::TokenUsage;
   toll --codex      # Codex only
   toll --detail     # full token counts")]
 struct Args {
-    #[arg(short = 'v', long = "version", help = "Show version information and exit")]
+    #[arg(
+        short = 'v',
+        long = "version",
+        help = "Show version information and exit"
+    )]
     version: bool,
 
     #[arg(long, conflicts_with = "days", help = "Show today's usage only")]
@@ -163,6 +167,9 @@ mod tests {
 
     #[test]
     fn formats_version_output() {
-        assert_eq!(version_text(), format!("toll {}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(
+            version_text(),
+            format!("toll {}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }
