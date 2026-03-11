@@ -60,7 +60,7 @@ get_target() {
         linux)
             case "$ARCH" in
                 x86_64) TARGET="x86_64-unknown-linux-musl" ;;
-                aarch64) TARGET="aarch64-unknown-linux-gnu" ;;
+                aarch64) TARGET="aarch64-unknown-linux-musl" ;;
             esac
             ;;
         darwin)
@@ -78,7 +78,7 @@ get_latest_version() {
 }
 
 install_from_release() {
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}-${TARGET}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}-${VERSION}-${TARGET}.tar.gz"
     TEMP_DIR=$(make_temp_dir)
     ARCHIVE="${TEMP_DIR}/${BINARY_NAME}.tar.gz"
 
@@ -127,7 +127,7 @@ verify_install() {
         error "Installed binary is missing: ${INSTALLED_PATH}"
     fi
 
-    info "Verification: $("$INSTALLED_PATH" --version)"
+    info "Verification: $("$INSTALLED_PATH" --version 2>/dev/null || "$INSTALLED_PATH" -v 2>/dev/null || "$INSTALLED_PATH" --help | head -n 1)"
 
     case ":$PATH:" in
         *":${INSTALL_DIR}:"*) ;;

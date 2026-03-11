@@ -98,7 +98,11 @@ case "$URL" in
     *"/releases/latest")
         printf '{"tag_name":"v1.2.3"}\n'
         ;;
-    *"toll-x86_64-unknown-linux-musl.tar.gz")
+    *"toll-v1.2.3-x86_64-unknown-linux-musl.tar.gz")
+        : "${OUTPUT:?missing output}"
+        printf 'archive' >"$OUTPUT"
+        ;;
+    *"toll-v1.2.3-aarch64-unknown-linux-musl.tar.gz")
         : "${OUTPUT:?missing output}"
         printf 'archive' >"$OUTPUT"
         ;;
@@ -190,9 +194,28 @@ run_release_install_test() {
 
     assert_file_exists "$TEST_INSTALL_DIR/toll"
     assert_file_contains "$TEST_LOG_DIR/output.txt" "Installation complete"
+    assert_file_contains "$TEST_LOG_DIR/output.txt" "Verification: toll 9.9.9"
     if [ -f "$TEST_LOG_DIR/cargo-args.txt" ]; then
         fail "cargo should not be used when release download succeeds"
     fi
+
+    cleanup_test_env
+    trap - EXIT INT TERM
+}
+
+run_linux_arm_release_install_test() {
+    make_test_env
+    trap cleanup_test_env EXIT INT TERM
+    write_fake_binary
+    write_fake_uname
+    write_fake_tar
+    write_fake_curl_for_release_success
+    export FAKE_UNAME_M="arm64"
+
+    TOLL_INSTALL_DIR="$TEST_INSTALL_DIR" sh "$INSTALL_SCRIPT" >"$TEST_LOG_DIR/output.txt" 2>&1
+
+    assert_file_exists "$TEST_INSTALL_DIR/toll"
+    assert_file_contains "$TEST_LOG_DIR/output.txt" "aarch64-unknown-linux-musl"
 
     cleanup_test_env
     trap - EXIT INT TERM
@@ -219,6 +242,7 @@ run_cargo_fallback_test() {
 
 assert_file_exists "$INSTALL_SCRIPT"
 run_release_install_test
+run_linux_arm_release_install_test
 run_cargo_fallback_test
 
 printf 'install script tests passed\n'
