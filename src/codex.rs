@@ -30,7 +30,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         if !codex_line_is_relevant(line) {
             continue;
         }
-        let Ok(v): Result<Value, _> = serde_json::from_str(&line) else {
+        let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
 
@@ -158,7 +158,7 @@ fn codex_session_paths(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> Vec
         .collect()
 }
 
-pub fn collect_codex_usage(sessions_dir: &PathBuf, since: Option<DateTime<Utc>>) -> TokenUsage {
+pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
     if !sessions_dir.exists() {
         return TokenUsage::default();
     }
