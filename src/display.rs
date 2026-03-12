@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::usage::TokenUsage;
+use crate::usage::{DailyUsage, TokenUsage};
 
 /// Controls whether token counts are shown in compact or full-detail form.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -338,10 +338,111 @@ pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
     print_model_breakdown(&usage.by_model, format);
 }
 
+/// Render the daily summary table for the selected period.
+pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberFormat) -> String {
+    let mut out = String::new();
+    out.push('\n');
+    out.push_str(&format!("Daily usage — {}\n\n", period));
+
+    if by_day.is_empty() {
+        out.push_str("  No usage found.\n");
+        return out;
+    }
+
+    let headers = [
+        "Date",
+        "Sessions",
+        "Input",
+        "Cached",
+        "Net Input",
+        "Output",
+        "Total",
+        "Cost",
+    ];
+
+    let rows: Vec<[String; 8]> = by_day
+        .iter()
+        .rev()
+        .map(|(date, usage)| {
+            [
+                date.format("%Y-%m-%d").to_string(),
+                fmt_num(usage.sessions as u64),
+                fmt_num_with_format(usage.input_tokens, format),
+                fmt_num_with_format(usage.cached_input_tokens, format),
+                fmt_num_with_format(usage.net_input_tokens(), format),
+                fmt_num_with_format(usage.output_tokens, format),
+                fmt_num_with_format(usage.total_tokens(), format),
+                fmt_cost(usage),
+            ]
+        })
+        .collect();
+
+    let mut widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+    for row in &rows {
+        for (idx, cell) in row.iter().enumerate() {
+            widths[idx] = widths[idx].max(cell.len());
+        }
+    }
+
+    let header_row = format!(
+        "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}\n",
+        headers[0],
+        headers[1],
+        headers[2],
+        headers[3],
+        headers[4],
+        headers[5],
+        headers[6],
+        headers[7],
+        w0 = widths[0],
+        w1 = widths[1],
+        w2 = widths[2],
+        w3 = widths[3],
+        w4 = widths[4],
+        w5 = widths[5],
+        w6 = widths[6],
+        w7 = widths[7],
+    );
+    out.push_str(&header_row);
+    let rule_len: usize = widths.iter().sum::<usize>() + 2 * (widths.len() - 1);
+    out.push_str(&format!("  {}\n", "─".repeat(rule_len)));
+
+    for row in rows {
+        out.push_str(&format!(
+            "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}\n",
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+            w3 = widths[3],
+            w4 = widths[4],
+            w5 = widths[5],
+            w6 = widths[6],
+            w7 = widths[7],
+        ));
+    }
+
+    out
+}
+
+/// Print the daily summary table.
+pub fn print_daily_table(period: &str, by_day: &DailyUsage, format: NumberFormat) {
+    print!("{}", render_daily_table(period, by_day, format));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::usage::DailyUsage;
     use crate::usage::TokenUsage;
+    use chrono::NaiveDate;
 
     #[test]
     fn fmt_num_formats_with_commas() {
@@ -460,5 +561,43 @@ mod tests {
         };
 
         assert!(single_col_width("Codex", &usage, NumberFormat::Full) > 15);
+    }
+
+    #[test]
+    fn render_daily_table_lists_latest_day_first() {
+        let mut by_day = DailyUsage::default();
+        by_day.insert(
+            NaiveDate::from_ymd_opt(2026, 3, 10).expect("valid date"),
+            TokenUsage {
+                sessions: 1,
+                input_tokens: 1_000,
+                output_tokens: 50,
+                cost_usd: 1.25,
+                ..Default::default()
+            },
+        );
+        by_day.insert(
+            NaiveDate::from_ymd_opt(2026, 3, 12).expect("valid date"),
+            TokenUsage {
+                sessions: 2,
+                input_tokens: 2_000,
+                cached_input_tokens: 500,
+                output_tokens: 100,
+                cost_usd: 2.50,
+                ..Default::default()
+            },
+        );
+
+        let rendered = render_daily_table("last 7 days", &by_day, NumberFormat::Compact);
+
+        let latest = rendered
+            .find("2026-03-12")
+            .expect("latest date should appear");
+        let older = rendered
+            .find("2026-03-10")
+            .expect("older date should appear");
+        assert!(latest < older);
+        assert!(rendered.contains("Daily usage"));
+        assert!(rendered.contains("Net Input"));
     }
 }
