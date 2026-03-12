@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::pricing;
-use crate::usage::{DailyUsage, TokenUsage, add_daily_usage};
+use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
 
 /// Parse Claude usage entries from any BufRead source.
 pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -86,6 +86,7 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
 pub fn parse_claude_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>>) -> DailyUsage {
     let mut by_day = DailyUsage::default();
     let mut session_days = HashSet::new();
+    let mut unknown_cost_days = HashSet::new();
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
@@ -126,17 +127,18 @@ pub fn parse_claude_lines_by_day(reader: impl BufRead, since: Option<DateTime<Ut
             .unwrap_or(0);
         let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
 
+        let date: NaiveDate = dt.with_timezone(&Local).date_naive();
+
         let model = msg.get("model").and_then(|m| m.as_str()).unwrap_or("");
         let (cost_usd, unknown_cost_sessions) = if !model.is_empty() && !model.starts_with('<') {
             match pricing::lookup(model) {
                 Some(p) => (p.cost(inp, cache_create, cache_read, out), 0),
-                None => (0.0, 1),
+                None => (0.0, if unknown_cost_days.insert(date) { 1 } else { 0 }),
             }
         } else {
             (0.0, 0)
         };
 
-        let date: NaiveDate = dt.with_timezone(&Local).date_naive();
         add_daily_usage(
             &mut by_day,
             date,
@@ -198,11 +200,11 @@ pub fn collect_claude_usage(projects_dir: &PathBuf, since: Option<DateTime<Utc>>
 pub fn collect_claude_daily_usage(
     projects_dir: &PathBuf,
     since: Option<DateTime<Utc>>,
-) -> DailyUsage {
-    let mut by_day = DailyUsage::default();
+) -> DailyUsageReport {
+    let mut report = DailyUsageReport::default();
 
     if !projects_dir.exists() {
-        return by_day;
+        return report;
     }
 
     for entry in WalkDir::new(projects_dir)
@@ -219,12 +221,17 @@ pub fn collect_claude_daily_usage(
         let Ok(file) = fs::File::open(entry.path()) else {
             continue;
         };
-        for (date, day_usage) in parse_claude_lines_by_day(BufReader::new(file), since) {
-            add_daily_usage(&mut by_day, date, &day_usage);
+        let session_by_day = parse_claude_lines_by_day(BufReader::new(file), since);
+        if session_by_day.is_empty() {
+            continue;
+        }
+        report.sessions_scanned += 1;
+        for (date, day_usage) in session_by_day {
+            add_daily_usage(&mut report.by_day, date, &day_usage);
         }
     }
 
-    by_day
+    report
 }
 
 #[cfg(test)]
@@ -368,5 +375,21 @@ mod tests {
         assert_eq!(by_day[&date].input_tokens, 300);
         assert_eq!(by_day[&date].output_tokens, 30);
         assert_eq!(by_day[&date].sessions, 1);
+    }
+
+    #[test]
+    fn parse_claude_lines_by_day_counts_unknown_cost_once_per_session_day() {
+        let data = format!(
+            "{}\n{}\n",
+            make_line("2026-03-09T00:30:00Z", "future-model-xyz", 100, 0, 0, 10),
+            make_line("2026-03-09T15:30:00Z", "future-model-xyz", 200, 0, 0, 20),
+        );
+
+        let by_day = parse_claude_lines_by_day(cursor(&data), None);
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date");
+        assert_eq!(by_day[&date].sessions, 1);
+        assert_eq!(by_day[&date].unknown_cost_sessions, 1);
+        assert_eq!(crate::display::fmt_cost(&by_day[&date]), "unknown");
     }
 }

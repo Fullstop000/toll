@@ -23,6 +23,13 @@ pub struct TokenUsage {
 /// Aggregated token usage keyed by local calendar date.
 pub type DailyUsage = BTreeMap<NaiveDate, TokenUsage>;
 
+/// Result of a daily aggregation pass plus the number of scanned sessions.
+#[derive(Default, Debug)]
+pub struct DailyUsageReport {
+    pub by_day: DailyUsage,
+    pub sessions_scanned: u32,
+}
+
 impl TokenUsage {
     pub fn add(&mut self, other: &TokenUsage) {
         self.input_tokens += other.input_tokens;

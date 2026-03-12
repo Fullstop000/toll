@@ -125,48 +125,80 @@ fn main() {
     let claude_projects = home.join(".claude").join("projects");
     let codex_sessions = home.join(".codex").join("sessions");
 
-    let claude_usage = if show_claude {
-        collect_claude_usage(&claude_projects, since)
-    } else {
-        TokenUsage::default()
-    };
-
-    let codex_usage = if show_codex {
-        collect_codex_usage(&codex_sessions, since)
-    } else {
-        TokenUsage::default()
-    };
-
-    let elapsed = t0.elapsed();
-
     if args.by_day {
         let mut by_day = DailyUsage::default();
+        let mut sessions_total = 0u32;
         if show_claude {
-            for (date, usage) in claude::collect_claude_daily_usage(&claude_projects, since) {
+            let report = claude::collect_claude_daily_usage(&claude_projects, since);
+            sessions_total += report.sessions_scanned;
+            for (date, usage) in report.by_day {
                 add_daily_usage(&mut by_day, date, &usage);
             }
         }
         if show_codex {
-            for (date, usage) in codex::collect_codex_daily_usage(&codex_sessions, since) {
+            let report = codex::collect_codex_daily_usage(&codex_sessions, since);
+            sessions_total += report.sessions_scanned;
+            for (date, usage) in report.by_day {
                 add_daily_usage(&mut by_day, date, &usage);
             }
         }
+        let elapsed = t0.elapsed();
         print_daily_table(&period, &by_day, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            sessions_total,
+            elapsed.as_secs_f64()
+        );
+        println!();
     } else if !show_claude {
+        let codex_usage = if show_codex {
+            collect_codex_usage(&codex_sessions, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_single("Codex", &codex_usage, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            codex_usage.sessions,
+            elapsed.as_secs_f64()
+        );
+        println!();
     } else if !show_codex {
+        let claude_usage = if show_claude {
+            collect_claude_usage(&claude_projects, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_single("Claude Code", &claude_usage, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            claude_usage.sessions,
+            elapsed.as_secs_f64()
+        );
+        println!();
     } else {
+        let claude_usage = if show_claude {
+            collect_claude_usage(&claude_projects, since)
+        } else {
+            TokenUsage::default()
+        };
+        let codex_usage = if show_codex {
+            collect_codex_usage(&codex_sessions, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_table(&claude_usage, &codex_usage, number_format);
+        let sessions_total = claude_usage.sessions + codex_usage.sessions;
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            sessions_total,
+            elapsed.as_secs_f64()
+        );
+        println!();
     }
-
-    let sessions_total = claude_usage.sessions + codex_usage.sessions;
-    println!(
-        "  Scanned {} session(s) in {:.2}s",
-        sessions_total,
-        elapsed.as_secs_f64()
-    );
-    println!();
 }
 
 #[cfg(test)]

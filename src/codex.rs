@@ -7,7 +7,7 @@ use std::thread;
 use walkdir::WalkDir;
 
 use crate::pricing;
-use crate::usage::{DailyUsage, TokenUsage, add_daily_usage};
+use crate::usage::{DailyUsageReport, TokenUsage, add_daily_usage};
 
 /// Fast-path filter for Codex lines worth deserializing.
 fn codex_line_is_relevant(line: &str) -> bool {
@@ -199,13 +199,16 @@ pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) ->
 }
 
 /// Collect Codex usage aggregated by local calendar date.
-pub fn collect_codex_daily_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> DailyUsage {
+pub fn collect_codex_daily_usage(
+    sessions_dir: &Path,
+    since: Option<DateTime<Utc>>,
+) -> DailyUsageReport {
     if !sessions_dir.exists() {
-        return DailyUsage::default();
+        return DailyUsageReport::default();
     }
 
     let paths = codex_session_paths(sessions_dir, since);
-    let mut by_day = DailyUsage::default();
+    let mut report = DailyUsageReport::default();
 
     for path in paths {
         let Some(dt) = codex_session_date(&path) else {
@@ -215,10 +218,11 @@ pub fn collect_codex_daily_usage(sessions_dir: &Path, since: Option<DateTime<Utc
             continue;
         };
         let date: NaiveDate = dt.with_timezone(&Local).date_naive();
-        add_daily_usage(&mut by_day, date, &usage);
+        add_daily_usage(&mut report.by_day, date, &usage);
+        report.sessions_scanned += 1;
     }
 
-    by_day
+    report
 }
 
 #[cfg(test)]
@@ -453,13 +457,14 @@ mod tests {
         )
         .expect("should write second rollout");
 
-        let by_day = collect_codex_daily_usage(&root, None);
+        let report = collect_codex_daily_usage(&root, None);
         let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date");
-        assert_eq!(by_day.len(), 1);
-        assert_eq!(by_day[&date].sessions, 2);
-        assert_eq!(by_day[&date].input_tokens, 400);
-        assert_eq!(by_day[&date].cached_input_tokens, 125);
-        assert_eq!(by_day[&date].output_tokens, 30);
+        assert_eq!(report.sessions_scanned, 2);
+        assert_eq!(report.by_day.len(), 1);
+        assert_eq!(report.by_day[&date].sessions, 2);
+        assert_eq!(report.by_day[&date].input_tokens, 400);
+        assert_eq!(report.by_day[&date].cached_input_tokens, 125);
+        assert_eq!(report.by_day[&date].output_tokens, 30);
 
         fs::remove_dir_all(root).expect("should clean temp session dir");
     }
