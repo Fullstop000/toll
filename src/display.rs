@@ -231,11 +231,7 @@ pub fn render_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
         .collect();
     rows.push(("Combined", summary_values(&combined, format)));
 
-    let label_w = rows
-        .iter()
-        .map(|(name, _)| name.len())
-        .max()
-        .unwrap_or(15);
+    let label_w = rows.iter().map(|(name, _)| name.len()).max().unwrap_or(15);
     let mut col_widths: Vec<usize> = MULTI_SUMMARY_HEADERS
         .iter()
         .map(|header| header.len())
@@ -280,7 +276,10 @@ pub fn render_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
     let mut all_models: BTreeMap<String, TokenUsage> = BTreeMap::new();
     for (_, usage) in usages {
         for (model, model_usage) in &usage.by_model {
-            all_models.entry(model.clone()).or_default().add(model_usage);
+            all_models
+                .entry(model.clone())
+                .or_default()
+                .add(model_usage);
         }
     }
     out.push_str(&render_model_breakdown(&all_models, format));
@@ -548,7 +547,9 @@ mod tests {
         assert!(!rendered.contains("Total tokens"));
         assert!(rendered.contains("0.0%"));
 
-        let header_pos = rendered.find("Sessions").expect("header should contain metrics");
+        let header_pos = rendered
+            .find("Sessions")
+            .expect("header should contain metrics");
         let claude_pos = rendered
             .find("Claude Code")
             .expect("table should contain a Claude row");

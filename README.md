@@ -68,6 +68,8 @@ Options:
       --days <N>     Show last N days
       --claude       Show Claude stats only
       --codex        Show Codex stats only
+      --json         Emit JSON to stdout
+      --csv          Emit CSV to stdout
       --list-prices  List all supported models and their prices, then exit
       --detail       Show full token counts instead of compact b/m/k units
       --by-day       Show usage aggregated by day
@@ -81,6 +83,8 @@ Examples:
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --detail     # full token counts
+  toll --json       # machine-readable JSON
+  toll --csv        # terminal CSV export
 ```
 
 ## Example output

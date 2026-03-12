@@ -2,6 +2,7 @@ mod agent;
 mod claude;
 mod codex;
 mod display;
+mod output;
 mod pricing;
 mod usage;
 
@@ -13,6 +14,10 @@ use std::path::PathBuf;
 use claude::ClaudeAgent;
 use codex::CodexAgent;
 use display::{NumberFormat, print_daily_table, print_multi_table, print_single};
+use output::{
+    OutputFilters, OutputMode, render_daily_csv, render_daily_json, render_summary_csv,
+    render_summary_json,
+};
 use pricing::list_prices;
 use usage::{DailyUsage, TokenUsage, add_daily_usage};
 
@@ -57,6 +62,12 @@ struct Args {
 
     #[arg(long, help = "Show usage aggregated by day")]
     by_day: bool,
+
+    #[arg(long, conflicts_with = "csv", help = "Emit JSON to stdout")]
+    json: bool,
+
+    #[arg(long, conflicts_with = "json", help = "Emit CSV to stdout")]
+    csv: bool,
 }
 
 fn home_dir() -> PathBuf {
@@ -67,6 +78,17 @@ fn home_dir() -> PathBuf {
 
 fn version_text() -> String {
     format!("toll {}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Select the output mode from mutually-exclusive CLI flags.
+fn output_mode(args: &Args) -> OutputMode {
+    if args.json {
+        OutputMode::Json
+    } else if args.csv {
+        OutputMode::Csv
+    } else {
+        OutputMode::Table
+    }
 }
 
 /// Collect usage for a single agent via the shared abstraction.
@@ -181,14 +203,19 @@ fn main() {
         period = "all time".to_string();
     }
 
-    if !args.by_day {
+    let output_mode = output_mode(&args);
+    let collected_at = Local::now();
+
+    if output_mode == OutputMode::Table && !args.by_day {
         println!("\nToken usage — {}", period);
     }
-    println!(
-        "{}Collected: {}",
-        if args.by_day { "\n" } else { "" },
-        Local::now().format("%Y-%m-%d %H:%M:%S %Z")
-    );
+    if output_mode == OutputMode::Table {
+        println!(
+            "{}Collected: {}",
+            if args.by_day { "\n" } else { "" },
+            collected_at.format("%Y-%m-%d %H:%M:%S %Z")
+        );
+    }
     let number_format = if args.detail {
         NumberFormat::Full
     } else {
@@ -202,43 +229,98 @@ fn main() {
     let claude_agent = ClaudeAgent::new();
     let codex_agent = CodexAgent::new();
     let agents = selected_agents(show_claude, show_codex, &claude_agent, &codex_agent);
+    let filters = OutputFilters {
+        today: args.today,
+        days: args.days,
+        claude: args.claude,
+        codex: args.codex,
+        by_day: args.by_day,
+        detail: args.detail,
+    };
 
     let t0 = std::time::Instant::now();
 
     if args.by_day {
         let (by_day, sessions_total) = collect_selected_daily_usage(&agents, &home, since);
         let elapsed = t0.elapsed();
-        print_daily_table(&period, &by_day, number_format);
-        println!(
-            "  Scanned {} session(s) in {:.2}s",
-            sessions_total,
-            elapsed.as_secs_f64()
-        );
-        println!();
-    } else {
-        let usages = collect_selected_usage(&agents, &home, since);
-        let elapsed = t0.elapsed();
-        match usages.as_slice() {
-            [single] => {
-                print_single(single.name, &single.usage, number_format);
-                println!(
-                    "  Scanned {} session(s) in {:.2}s",
-                    single.usage.sessions,
-                    elapsed.as_secs_f64()
-                );
-                println!();
-            }
-            many => {
-                let display_rows: Vec<(&str, &TokenUsage)> =
-                    many.iter().map(|entry| (entry.name, &entry.usage)).collect();
-                print_multi_table(&display_rows, number_format);
-                let sessions_total: u32 = many.iter().map(|entry| entry.usage.sessions).sum();
+        match output_mode {
+            OutputMode::Table => {
+                print_daily_table(&period, &by_day, number_format);
                 println!(
                     "  Scanned {} session(s) in {:.2}s",
                     sessions_total,
                     elapsed.as_secs_f64()
                 );
                 println!();
+            }
+            OutputMode::Csv => {
+                println!("{}", render_daily_csv(&by_day, number_format));
+            }
+            OutputMode::Json => {
+                println!(
+                    "{}",
+                    render_daily_json(
+                        &period,
+                        &collected_at.to_rfc3339(),
+                        filters,
+                        elapsed.as_secs_f64(),
+                        sessions_total,
+                        &by_day,
+                    )
+                    .expect("daily JSON output should serialize")
+                );
+            }
+        }
+    } else {
+        let usages = collect_selected_usage(&agents, &home, since);
+        let elapsed = t0.elapsed();
+        let display_rows: Vec<(&str, &TokenUsage)> = usages
+            .iter()
+            .map(|entry| (entry.name, &entry.usage))
+            .collect();
+        let sessions_total: u32 = usages.iter().map(|entry| entry.usage.sessions).sum();
+
+        match output_mode {
+            OutputMode::Table => match usages.as_slice() {
+                [single] => {
+                    print_single(single.name, &single.usage, number_format);
+                    println!(
+                        "  Scanned {} session(s) in {:.2}s",
+                        single.usage.sessions,
+                        elapsed.as_secs_f64()
+                    );
+                    println!();
+                }
+                many => {
+                    let display_rows: Vec<(&str, &TokenUsage)> = many
+                        .iter()
+                        .map(|entry| (entry.name, &entry.usage))
+                        .collect();
+                    print_multi_table(&display_rows, number_format);
+                    println!(
+                        "  Scanned {} session(s) in {:.2}s",
+                        sessions_total,
+                        elapsed.as_secs_f64()
+                    );
+                    println!();
+                }
+            },
+            OutputMode::Csv => {
+                println!("{}", render_summary_csv(&display_rows, number_format));
+            }
+            OutputMode::Json => {
+                println!(
+                    "{}",
+                    render_summary_json(
+                        &period,
+                        &collected_at.to_rfc3339(),
+                        filters,
+                        elapsed.as_secs_f64(),
+                        sessions_total,
+                        &display_rows,
+                    )
+                    .expect("summary JSON output should serialize")
+                );
             }
         }
     }
@@ -282,6 +364,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_json_flag() {
+        let args = Args::try_parse_from(["toll", "--json"]).expect("should parse");
+        assert!(args.json);
+        assert_eq!(output_mode(&args), OutputMode::Json);
+    }
+
+    #[test]
+    fn parses_csv_flag() {
+        let args = Args::try_parse_from(["toll", "--csv"]).expect("should parse");
+        assert!(args.csv);
+        assert_eq!(output_mode(&args), OutputMode::Csv);
+    }
+
+    #[test]
     fn agents_expose_distinct_names_and_data_dirs() {
         let claude = claude::ClaudeAgent::new();
         let codex = codex::CodexAgent::new();
@@ -289,8 +385,14 @@ mod tests {
 
         assert_eq!(agents[0].name(), "Claude Code");
         assert_eq!(agents[1].name(), "Codex");
-        assert_eq!(agents[0].data_dir(Path::new("/tmp")), PathBuf::from("/tmp/.claude/projects"));
-        assert_eq!(agents[1].data_dir(Path::new("/tmp")), PathBuf::from("/tmp/.codex/sessions"));
+        assert_eq!(
+            agents[0].data_dir(Path::new("/tmp")),
+            PathBuf::from("/tmp/.claude/projects")
+        );
+        assert_eq!(
+            agents[1].data_dir(Path::new("/tmp")),
+            PathBuf::from("/tmp/.codex/sessions")
+        );
     }
 
     #[test]
