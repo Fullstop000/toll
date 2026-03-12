@@ -1,6 +1,6 @@
 [package]
 name = "toll"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 description = "Token usage statistics for Claude Code and Codex CLI"
 license = "MIT"
