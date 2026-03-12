@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 use crate::display::{NumberFormat, fmt_cost, fmt_num_with_format, fmt_pct};
 use crate::usage::{DailyUsage, TokenUsage};
@@ -122,6 +123,20 @@ fn csv_field(value: &str) -> String {
     }
 }
 
+/// Aggregate per-model usage across all selected agents.
+fn combined_models(usages: &[(&str, &TokenUsage)]) -> BTreeMap<String, TokenUsage> {
+    let mut all_models = BTreeMap::new();
+    for (_, usage) in usages {
+        for (model, model_usage) in &usage.by_model {
+            all_models
+                .entry(model.clone())
+                .or_insert_with(TokenUsage::default)
+                .add(model_usage);
+        }
+    }
+    all_models
+}
+
 /// Render one CSV summary row.
 fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String {
     let values = [
@@ -145,6 +160,22 @@ fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> Stri
         .join(",")
 }
 
+/// Render one CSV by-model row.
+fn csv_model_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String {
+    let values = [
+        name.to_string(),
+        fmt_num_with_format(usage.total_tokens(), format),
+        fmt_num_with_format(usage.output_tokens, format),
+        fmt_cost(usage),
+    ];
+
+    values
+        .iter()
+        .map(|value| csv_field(value))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Render summary CSV for the currently selected agents.
 pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
     let mut lines =
@@ -157,6 +188,15 @@ pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
     if usages.len() > 1 {
         let combined = combined_usage(usages);
         lines.push(csv_summary_row("Combined", &combined, format));
+    }
+
+    let all_models = combined_models(usages);
+    if !all_models.is_empty() {
+        lines.push(String::new());
+        lines.push("Model,Tokens,Output,Cost".to_string());
+        for (model, usage) in all_models {
+            lines.push(csv_model_row(&model, &usage, format));
+        }
     }
 
     lines.join("\n")
@@ -269,7 +309,7 @@ mod tests {
 
     #[test]
     fn render_summary_csv_prints_terminal_friendly_rows() {
-        let usage = TokenUsage {
+        let mut usage = TokenUsage {
             input_tokens: 12_500,
             cached_input_tokens: 2_500,
             output_tokens: 500,
@@ -277,11 +317,14 @@ mod tests {
             cost_usd: 1.25,
             ..Default::default()
         };
+        usage.record_model("gpt-5.4", 10_000, 0, 2_500, 500, 1.25);
 
         let rendered = render_summary_csv(&[("Codex", &usage)], NumberFormat::Compact);
 
         assert!(rendered.starts_with("Agent,Sessions,Input,Cached,Hit Rate"));
         assert!(rendered.contains("Codex,2,12.5k,2.5k,20.0%,10.0k,500,13.0k,$1.25"));
+        assert!(rendered.contains("\n\nModel,Tokens,Output,Cost\n"));
+        assert!(rendered.contains("gpt-5.4,13.0k,500,$1.25"));
     }
 
     #[test]
