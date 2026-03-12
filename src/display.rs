@@ -9,6 +9,18 @@ pub enum NumberFormat {
     Full,
 }
 
+/// Summary headers used by multi-agent tables.
+const MULTI_SUMMARY_HEADERS: [&str; 8] = [
+    "Sessions",
+    "Input",
+    "Cached",
+    "Hit Rate",
+    "Net Input",
+    "Output",
+    "Total",
+    "Cost",
+];
+
 /// Format a raw integer with comma separators.
 pub fn fmt_num(n: u64) -> String {
     let s = n.to_string();
@@ -49,6 +61,7 @@ fn round_to_one_decimal(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
 }
 
+/// Format a percentage cell used in cached-token displays.
 pub fn fmt_pct(part: u64, total: u64) -> String {
     if total == 0 {
         return "  0.0%".to_string();
@@ -56,6 +69,7 @@ pub fn fmt_pct(part: u64, total: u64) -> String {
     format!("{:5.1}%", part as f64 / total as f64 * 100.0)
 }
 
+/// Format the cost cell while preserving unknown-cost markers.
 pub fn fmt_cost(usage: &TokenUsage) -> String {
     if usage.sessions == 0 {
         return "—".to_string();
@@ -71,271 +85,211 @@ pub fn fmt_cost(usage: &TokenUsage) -> String {
     }
 }
 
-/// Build the cached-token cell with its hit-rate percentage.
-fn fmt_cached_tokens(cached: u64, total_input: u64, format: NumberFormat) -> String {
-    format!(
-        "{} ({})",
-        fmt_num_with_format(cached, format),
-        fmt_pct(cached, total_input)
-    )
+/// Format the cached-token count cell.
+fn fmt_cached_tokens(cached: u64, format: NumberFormat) -> String {
+    fmt_num_with_format(cached, format)
 }
 
-/// Compute the summary-table column width from headers and rendered values.
-fn summary_col_width(
-    claude: &TokenUsage,
-    codex: &TokenUsage,
-    combined: &TokenUsage,
-    format: NumberFormat,
-) -> usize {
-    let headers = ["Claude Code", "Codex", "Combined"];
-    let values = [
-        fmt_num(claude.sessions as u64),
-        fmt_num(codex.sessions as u64),
-        fmt_num(combined.sessions as u64),
-        fmt_num_with_format(claude.input_tokens, format),
-        fmt_num_with_format(codex.input_tokens, format),
-        fmt_num_with_format(combined.input_tokens, format),
-        fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens, format),
-        fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens, format),
-        fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens, format),
-        fmt_num_with_format(claude.net_input_tokens(), format),
-        fmt_num_with_format(codex.net_input_tokens(), format),
-        fmt_num_with_format(combined.net_input_tokens(), format),
-        fmt_num_with_format(claude.output_tokens, format),
-        fmt_num_with_format(codex.output_tokens, format),
-        fmt_num_with_format(combined.output_tokens, format),
-        fmt_num_with_format(claude.total_tokens(), format),
-        fmt_num_with_format(codex.total_tokens(), format),
-        fmt_num_with_format(combined.total_tokens(), format),
-        fmt_cost(claude),
-        fmt_cost(codex),
-        fmt_cost(combined),
-    ];
-
-    headers
-        .into_iter()
-        .map(str::len)
-        .chain(values.iter().map(String::len))
-        .max()
-        .unwrap_or(15)
-}
-
-/// Compute the single-app column width from rendered values.
-fn single_col_width(label: &str, usage: &TokenUsage, format: NumberFormat) -> usize {
-    let values = [
-        label.to_string(),
+/// Render all summary cells for one usage snapshot.
+fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 8] {
+    [
         fmt_num(usage.sessions as u64),
         fmt_num_with_format(usage.input_tokens, format),
-        fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens, format),
+        fmt_cached_tokens(usage.cached_input_tokens, format),
+        fmt_pct(usage.cached_input_tokens, usage.input_tokens),
         fmt_num_with_format(usage.net_input_tokens(), format),
         fmt_num_with_format(usage.output_tokens, format),
         fmt_num_with_format(usage.total_tokens(), format),
         fmt_cost(usage),
-    ];
-
-    values.iter().map(String::len).max().unwrap_or(15)
+    ]
 }
 
-/// Print the side-by-side summary table for Claude Code, Codex, and the combined totals.
-pub fn print_table(claude: &TokenUsage, codex: &TokenUsage, format: NumberFormat) {
-    let combined = TokenUsage {
-        input_tokens: claude.input_tokens + codex.input_tokens,
-        cached_input_tokens: claude.cached_input_tokens + codex.cached_input_tokens,
-        cache_write_tokens: claude.cache_write_tokens + codex.cache_write_tokens,
-        output_tokens: claude.output_tokens + codex.output_tokens,
-        sessions: claude.sessions + codex.sessions,
-        cost_usd: claude.cost_usd + codex.cost_usd,
-        unknown_cost_sessions: claude.unknown_cost_sessions + codex.unknown_cost_sessions,
-        ..Default::default()
-    };
-
-    let col_w = summary_col_width(claude, codex, &combined, format);
-    let label_w = 28usize;
-    let total_w = label_w + 2 + (col_w + 2) * 3;
-
-    let row = |label: &str, c: &str, d: &str, t: &str| {
-        println!(
-            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
-            label,
-            c,
-            d,
-            t,
-            lw = label_w,
-            cw = col_w
-        );
-    };
-
-    println!();
-    println!(
-        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
-        "",
-        "Claude Code",
-        "Codex",
-        "Combined",
-        lw = label_w,
-        cw = col_w
-    );
-    println!("  {}", "═".repeat(total_w));
-
-    row(
-        "Sessions",
-        &fmt_num(claude.sessions as u64),
-        &fmt_num(codex.sessions as u64),
-        &fmt_num(combined.sessions as u64),
-    );
-    println!("  {}", "─".repeat(total_w));
-
-    row(
-        "Input tokens",
-        &fmt_num_with_format(claude.input_tokens, format),
-        &fmt_num_with_format(codex.input_tokens, format),
-        &fmt_num_with_format(combined.input_tokens, format),
-    );
-    row(
-        "  ↳ cached",
-        &fmt_cached_tokens(claude.cached_input_tokens, claude.input_tokens, format),
-        &fmt_cached_tokens(codex.cached_input_tokens, codex.input_tokens, format),
-        &fmt_cached_tokens(combined.cached_input_tokens, combined.input_tokens, format),
-    );
-    row(
-        "  ↳ net (non-cached)",
-        &fmt_num_with_format(claude.net_input_tokens(), format),
-        &fmt_num_with_format(codex.net_input_tokens(), format),
-        &fmt_num_with_format(combined.net_input_tokens(), format),
-    );
-    row(
-        "Output tokens",
-        &fmt_num_with_format(claude.output_tokens, format),
-        &fmt_num_with_format(codex.output_tokens, format),
-        &fmt_num_with_format(combined.output_tokens, format),
-    );
-    println!("  {}", "─".repeat(total_w));
-    row(
-        "Total tokens",
-        &fmt_num_with_format(claude.total_tokens(), format),
-        &fmt_num_with_format(codex.total_tokens(), format),
-        &fmt_num_with_format(combined.total_tokens(), format),
-    );
-    println!("  {}", "─".repeat(total_w));
-    row(
-        "Estimated cost (USD)",
-        &fmt_cost(claude),
-        &fmt_cost(codex),
-        &fmt_cost(&combined),
-    );
-    println!();
-
-    if combined.has_unknown_cost() {
-        println!(
-            "  * pricing unavailable for {} session(s) — cost is understated",
-            combined.unknown_cost_sessions
-        );
-        println!();
+/// Combine all usage snapshots into a single aggregate total.
+fn combined_usage(usages: &[(&str, &TokenUsage)]) -> TokenUsage {
+    let mut combined = TokenUsage::default();
+    for (_, usage) in usages {
+        combined.add(usage);
     }
-
-    // Merge both breakdowns and display
-    let mut all_models: BTreeMap<String, TokenUsage> = BTreeMap::new();
-    for (m, u) in &claude.by_model {
-        all_models.entry(m.clone()).or_default().add(u);
-    }
-    for (m, u) in &codex.by_model {
-        all_models.entry(m.clone()).or_default().add(u);
-    }
-    print_model_breakdown(&all_models, format);
+    combined
 }
 
-/// Print the aggregated per-model breakdown table.
-fn print_model_breakdown(by_model: &BTreeMap<String, TokenUsage>, format: NumberFormat) {
+/// Render the aggregated per-model breakdown table.
+fn render_model_breakdown(by_model: &BTreeMap<String, TokenUsage>, format: NumberFormat) -> String {
     if by_model.is_empty() {
-        return;
+        return String::new();
     }
 
     let col_w = 15usize;
     let label_w = 28usize;
     let total_w = label_w + 2 + (col_w + 2) * 3;
 
-    println!("  By model:");
-    println!("  {}", "─".repeat(total_w));
-    println!(
-        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
+    let mut out = String::new();
+    out.push_str("  By model:\n");
+    out.push_str(&format!("  {}\n", "─".repeat(total_w)));
+    out.push_str(&format!(
+        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}\n",
         "Model",
         "Tokens",
         "Output",
         "Cost",
         lw = label_w,
         cw = col_w
-    );
-    println!("  {}", "─".repeat(total_w));
+    ));
+    out.push_str(&format!("  {}\n", "─".repeat(total_w)));
 
-    for (model, u) in by_model {
+    for (model, usage) in by_model {
         let label = if model.len() > label_w {
             format!("…{}", &model[model.len() - (label_w - 1)..])
         } else {
             model.clone()
         };
-        println!(
-            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}",
+        out.push_str(&format!(
+            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}\n",
             label,
-            fmt_num_with_format(u.total_tokens(), format),
-            fmt_num_with_format(u.output_tokens, format),
-            fmt_cost(u),
+            fmt_num_with_format(usage.total_tokens(), format),
+            fmt_num_with_format(usage.output_tokens, format),
+            fmt_cost(usage),
             lw = label_w,
             cw = col_w
-        );
+        ));
     }
-    println!("  {}", "─".repeat(total_w));
-    println!();
+
+    out.push_str(&format!("  {}\n\n", "─".repeat(total_w)));
+    out
+}
+
+/// Render the summary table for a single tool in a vertical key/value layout.
+pub fn render_single_table(label: &str, usage: &TokenUsage, format: NumberFormat) -> String {
+    let mut out = String::new();
+    let values = summary_values(usage, format);
+    let rows = [
+        ("Sessions", values[0].as_str()),
+        ("Input tokens", values[1].as_str()),
+        ("  ↳ cached", values[2].as_str()),
+        ("  ↳ hit rate", values[3].as_str()),
+        ("  ↳ net (non-cached)", values[4].as_str()),
+        ("Output tokens", values[5].as_str()),
+        ("Total tokens", values[6].as_str()),
+        ("Estimated cost (USD)", values[7].as_str()),
+    ];
+    let label_w = rows
+        .iter()
+        .map(|(row_label, _)| row_label.len())
+        .max()
+        .unwrap_or(28);
+    let col_w = std::iter::once(label.len())
+        .chain(rows.iter().map(|(_, value)| value.len()))
+        .max()
+        .unwrap_or(15);
+    let total_w = label_w + 2 + col_w;
+
+    out.push('\n');
+    out.push_str(&format!(
+        "  {:<lw$} {:>cw$}\n",
+        "",
+        label,
+        lw = label_w,
+        cw = col_w
+    ));
+    out.push_str(&format!("  {}\n", "═".repeat(total_w)));
+    for (idx, (row_label, value)) in rows.iter().enumerate() {
+        out.push_str(&format!(
+            "  {:<lw$} {:>cw$}\n",
+            row_label,
+            value,
+            lw = label_w,
+            cw = col_w
+        ));
+        if matches!(idx, 0 | 4 | 6) {
+            out.push_str(&format!("  {}\n", "─".repeat(total_w)));
+        }
+    }
+    out.push('\n');
+
+    if usage.has_unknown_cost() {
+        out.push_str(&format!(
+            "  * pricing unavailable for {} session(s) — cost is understated\n\n",
+            usage.unknown_cost_sessions
+        ));
+    }
+
+    out.push_str(&render_model_breakdown(&usage.by_model, format));
+    out
 }
 
 /// Print the summary table for a single tool.
 pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
-    let col_w = single_col_width(label, usage, format);
-    let label_w = 28usize;
-    let total_w = label_w + 2 + col_w;
+    print!("{}", render_single_table(label, usage, format));
+}
 
-    let row = |lbl: &str, val: &str| {
-        println!("  {:<lw$} {:>cw$}", lbl, val, lw = label_w, cw = col_w);
-    };
+/// Render the summary table for any number of agents plus the combined total.
+pub fn render_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
+    let combined = combined_usage(usages);
+    let mut rows: Vec<(&str, [String; 8])> = usages
+        .iter()
+        .map(|(name, usage)| (*name, summary_values(usage, format)))
+        .collect();
+    rows.push(("Combined", summary_values(&combined, format)));
 
-    println!();
-    println!("  {:<lw$} {:>cw$}", "", label, lw = label_w, cw = col_w);
-    println!("  {}", "═".repeat(total_w));
-    row("Sessions", &fmt_num(usage.sessions as u64));
-    println!("  {}", "─".repeat(total_w));
-    row(
-        "Input tokens",
-        &fmt_num_with_format(usage.input_tokens, format),
-    );
-    row(
-        "  ↳ cached",
-        &fmt_cached_tokens(usage.cached_input_tokens, usage.input_tokens, format),
-    );
-    row(
-        "  ↳ net (non-cached)",
-        &fmt_num_with_format(usage.net_input_tokens(), format),
-    );
-    row(
-        "Output tokens",
-        &fmt_num_with_format(usage.output_tokens, format),
-    );
-    println!("  {}", "─".repeat(total_w));
-    row(
-        "Total tokens",
-        &fmt_num_with_format(usage.total_tokens(), format),
-    );
-    println!("  {}", "─".repeat(total_w));
-    row("Estimated cost (USD)", &fmt_cost(usage));
-    println!();
+    let label_w = rows
+        .iter()
+        .map(|(name, _)| name.len())
+        .max()
+        .unwrap_or(15);
+    let mut col_widths: Vec<usize> = MULTI_SUMMARY_HEADERS
+        .iter()
+        .map(|header| header.len())
+        .collect();
+    for row in &rows {
+        for (idx, cell) in row.1.iter().enumerate() {
+            col_widths[idx] = col_widths[idx].max(cell.len());
+        }
+    }
+    let total_w =
+        label_w + 2 + col_widths.iter().sum::<usize>() + 2 * col_widths.len().saturating_sub(1);
 
-    if usage.has_unknown_cost() {
-        println!(
-            "  * pricing unavailable for {} session(s) — cost is understated",
-            usage.unknown_cost_sessions
-        );
-        println!();
+    let mut out = String::new();
+    out.push('\n');
+    out.push_str(&format!("  {:<lw$}", "", lw = label_w));
+    for (header, width) in MULTI_SUMMARY_HEADERS.iter().zip(col_widths.iter()) {
+        out.push_str(&format!(" {:>cw$} ", header, cw = *width));
+    }
+    out.push('\n');
+    out.push_str(&format!("  {}\n", "═".repeat(total_w)));
+
+    for (idx, (name, values)) in rows.iter().enumerate() {
+        if idx + 1 == rows.len() {
+            out.push_str(&format!("  {}\n", "─".repeat(total_w)));
+        }
+        out.push_str(&format!("  {:<lw$}", name, lw = label_w));
+        for (cell, width) in values.iter().zip(col_widths.iter()) {
+            out.push_str(&format!(" {:>cw$} ", cell, cw = *width));
+        }
+        out.push('\n');
+    }
+    out.push_str(&format!("  {}\n", "─".repeat(total_w)));
+    out.push('\n');
+
+    if combined.has_unknown_cost() {
+        out.push_str(&format!(
+            "  * pricing unavailable for {} session(s) — cost is understated\n\n",
+            combined.unknown_cost_sessions
+        ));
     }
 
-    print_model_breakdown(&usage.by_model, format);
+    let mut all_models: BTreeMap<String, TokenUsage> = BTreeMap::new();
+    for (_, usage) in usages {
+        for (model, model_usage) in &usage.by_model {
+            all_models.entry(model.clone()).or_default().add(model_usage);
+        }
+    }
+    out.push_str(&render_model_breakdown(&all_models, format));
+    out
+}
+
+/// Print the summary table for any number of agents plus the combined total.
+pub fn print_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) {
+    print!("{}", render_multi_table(usages, format));
 }
 
 /// Render the daily summary table for the selected period.
@@ -384,7 +338,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         }
     }
 
-    let header_row = format!(
+    out.push_str(&format!(
         "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}\n",
         headers[0],
         headers[1],
@@ -402,8 +356,8 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         w5 = widths[5],
         w6 = widths[6],
         w7 = widths[7],
-    );
-    out.push_str(&header_row);
+    ));
+
     let rule_len: usize = widths.iter().sum::<usize>() + 2 * (widths.len() - 1);
     out.push_str(&format!("  {}\n", "─".repeat(rule_len)));
 
@@ -440,8 +394,6 @@ pub fn print_daily_table(period: &str, by_day: &DailyUsage, format: NumberFormat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::usage::DailyUsage;
-    use crate::usage::TokenUsage;
     use chrono::NaiveDate;
 
     #[test]
@@ -492,75 +444,127 @@ mod tests {
 
     #[test]
     fn fmt_cost_known() {
-        let u = TokenUsage {
+        let usage = TokenUsage {
             sessions: 1,
             cost_usd: 12.345,
             ..Default::default()
         };
-        assert_eq!(fmt_cost(&u), "$12.35");
+        assert_eq!(fmt_cost(&usage), "$12.35");
     }
 
     #[test]
     fn fmt_cost_all_unknown() {
-        let u = TokenUsage {
+        let usage = TokenUsage {
             sessions: 2,
             unknown_cost_sessions: 2,
             ..Default::default()
         };
-        assert_eq!(fmt_cost(&u), "unknown");
+        assert_eq!(fmt_cost(&usage), "unknown");
     }
 
     #[test]
     fn fmt_cost_partial_unknown() {
-        let u = TokenUsage {
+        let usage = TokenUsage {
             sessions: 3,
             cost_usd: 5.0,
             unknown_cost_sessions: 1,
             ..Default::default()
         };
-        assert_eq!(fmt_cost(&u), "$5.00*");
+        assert_eq!(fmt_cost(&usage), "$5.00*");
     }
 
     #[test]
     fn fmt_cost_no_sessions() {
-        let u = TokenUsage::default();
-        assert_eq!(fmt_cost(&u), "—");
+        let usage = TokenUsage::default();
+        assert_eq!(fmt_cost(&usage), "—");
     }
 
     #[test]
-    fn summary_col_width_expands_for_cached_row() {
-        let claude = TokenUsage {
-            input_tokens: 200_000_000,
-            cached_input_tokens: 193_981_784,
+    fn render_single_table_keeps_vertical_layout() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            cached_input_tokens: 750_000,
             sessions: 1,
+            cost_usd: 12.34,
+            ..Default::default()
+        };
+
+        let rendered = render_single_table("Codex", &usage, NumberFormat::Full);
+
+        assert!(rendered.contains("  Sessions"));
+        assert!(rendered.contains("  Input tokens"));
+        assert!(rendered.contains("  ↳ hit rate"));
+        assert!(rendered.contains("Estimated cost (USD)"));
+        assert!(rendered.contains("Codex"));
+        assert!(rendered.contains("$12.34"));
+        assert!(!rendered.contains("Cached              Net input"));
+    }
+
+    #[test]
+    fn render_multi_table_supports_three_agents() {
+        let claude = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 20,
+            sessions: 1,
+            cost_usd: 1.0,
             ..Default::default()
         };
         let codex = TokenUsage {
-            input_tokens: 120_000_000,
-            cached_input_tokens: 103_838_208,
-            sessions: 1,
-            ..Default::default()
-        };
-        let combined = TokenUsage {
-            input_tokens: claude.input_tokens + codex.input_tokens,
-            cached_input_tokens: claude.cached_input_tokens + codex.cached_input_tokens,
+            input_tokens: 200,
+            output_tokens: 30,
             sessions: 2,
+            cost_usd: 2.0,
+            ..Default::default()
+        };
+        let gemini = TokenUsage {
+            input_tokens: 300,
+            output_tokens: 40,
+            sessions: 3,
+            cost_usd: 3.0,
             ..Default::default()
         };
 
-        assert!(summary_col_width(&claude, &codex, &combined, NumberFormat::Full) > 15);
-    }
+        let rendered = render_multi_table(
+            &[
+                ("Claude Code", &claude),
+                ("Codex", &codex),
+                ("Gemini", &gemini),
+            ],
+            NumberFormat::Full,
+        );
 
-    #[test]
-    fn single_col_width_expands_for_cached_row() {
-        let usage = TokenUsage {
-            input_tokens: 200_000_000,
-            cached_input_tokens: 193_981_784,
-            sessions: 1,
-            ..Default::default()
-        };
+        assert!(rendered.contains("Claude Code"));
+        assert!(rendered.contains("Codex"));
+        assert!(rendered.contains("Gemini"));
+        assert!(rendered.contains("Combined"));
+        assert!(rendered.contains("$6.00"));
+        assert!(rendered.contains("Sessions"));
+        assert!(rendered.contains("Input"));
+        assert!(rendered.contains("Hit Rate"));
+        assert!(rendered.contains("Net Input"));
+        assert!(rendered.contains("Cost"));
+        assert!(!rendered.contains("Input tokens"));
+        assert!(!rendered.contains("Output tokens"));
+        assert!(!rendered.contains("Total tokens"));
+        assert!(rendered.contains("0.0%"));
 
-        assert!(single_col_width("Codex", &usage, NumberFormat::Full) > 15);
+        let header_pos = rendered.find("Sessions").expect("header should contain metrics");
+        let claude_pos = rendered
+            .find("Claude Code")
+            .expect("table should contain a Claude row");
+        let combined_pos = rendered
+            .find("Combined")
+            .expect("table should contain a combined row");
+        assert!(header_pos < claude_pos);
+        assert!(claude_pos < combined_pos);
+
+        let combined_line = rendered
+            .find("\n  Combined")
+            .expect("combined row should exist");
+        let separator_before_combined = rendered[..combined_line]
+            .rfind("\n  ─")
+            .expect("separator should precede combined row");
+        assert!(separator_before_combined < combined_line);
     }
 
     #[test]

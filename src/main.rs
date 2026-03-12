@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use claude::ClaudeAgent;
 use codex::CodexAgent;
-use display::{NumberFormat, print_daily_table, print_single, print_table};
+use display::{NumberFormat, print_daily_table, print_multi_table, print_single};
 use pricing::list_prices;
 use usage::{DailyUsage, TokenUsage, add_daily_usage};
 
@@ -228,9 +228,11 @@ fn main() {
                 );
                 println!();
             }
-            [claude, codex] => {
-                print_table(&claude.usage, &codex.usage, number_format);
-                let sessions_total = claude.usage.sessions + codex.usage.sessions;
+            many => {
+                let display_rows: Vec<(&str, &TokenUsage)> =
+                    many.iter().map(|entry| (entry.name, &entry.usage)).collect();
+                print_multi_table(&display_rows, number_format);
+                let sessions_total: u32 = many.iter().map(|entry| entry.usage.sessions).sum();
                 println!(
                     "  Scanned {} session(s) in {:.2}s",
                     sessions_total,
@@ -238,7 +240,6 @@ fn main() {
                 );
                 println!();
             }
-            _ => unreachable!("clap should ensure at least one agent is enabled"),
         }
     }
 }
