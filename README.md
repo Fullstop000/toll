@@ -57,46 +57,68 @@ cargo install --path .
 
 ## Usage
 
-```sh
-toll                # all-time stats
-toll --today        # today only
-toll --days 7       # last 7 days
-toll --claude       # Claude Code only
-toll --codex        # Codex CLI only
-toll --detail       # show full token counts
-toll --list-prices  # show all supported model prices
+```text
+Token usage statistics for Claude Code and Codex CLI
+
+Usage: toll [OPTIONS]
+
+Options:
+  -v, --version      Show version information and exit
+      --today        Show today's usage only
+      --days <N>     Show last N days
+      --claude       Show Claude stats only
+      --codex        Show Codex stats only
+      --json         Emit JSON to stdout
+      --csv          Emit CSV to stdout
+      --list-prices  List all supported models and their prices, then exit
+      --detail       Show full token counts instead of compact b/m/k units
+      --by-day       Show usage aggregated by day
+  -h, --help         Print help
+
+Examples:
+  toll              # all-time stats
+  toll --today      # today only
+  toll --days 7     # last 7 days
+  toll --by-day --days 7  # daily summary table
+  toll --claude     # Claude only
+  toll --codex      # Codex only
+  toll --detail     # full token counts
+  toll --json       # machine-readable JSON
+  toll --csv        # terminal CSV export
 ```
 
 ## Example output
 
-```
+```text
 Token usage — all time
-Collected: 2026-03-09 01:44:23 +08:00
+Collected: 2026-03-13 00:57:37 +08:00
 
-                                   Claude Code            Codex         Combined
-  ═════════════════════════════════════════════════════════════════════════════════
-  Sessions                                  24               14               38
-  ─────────────────────────────────────────────────────────────────────────────────
-  Input tokens                          200.4m          111.4m          311.8m
-    ↳ cached                     194.0m ( 96.8%)  103.8m ( 93.2%)  297.8m ( 95.5%)
-    ↳ net (non-cached)                  6.5m             7.5m            14.0m
-  Output tokens                          766.9k          578.5k            1.3m
-  ─────────────────────────────────────────────────────────────────────────────────
-  Total tokens                          201.2m          111.9m          313.1m
-  ─────────────────────────────────────────────────────────────────────────────────
-  Estimated cost (USD)                  $91.29           $28.17          $119.46
+              Sessions   Input  Cached  Hit Rate  Net Input  Output   Total      Cost 
+  ════════════════════════════════════════════════════════════════════════════════════
+  Claude Code       17   69.8m   59.1m     84.7%      10.7m  282.0k   70.1m    $79.36 
+  Codex             87  615.5m  579.7m     94.2%      35.8m    3.2m  618.7m  $219.18* 
+  ────────────────────────────────────────────────────────────────────────────────────
+  Combined         104  685.3m  638.8m     93.2%      46.5m    3.5m  688.8m  $298.54* 
+  ────────────────────────────────────────────────────────────────────────────────────
+
+  * pricing unavailable for 1 session(s) — cost is understated
 
   By model:
   ─────────────────────────────────────────────────────────────────────────────────
   Model                                 Tokens           Output             Cost
   ─────────────────────────────────────────────────────────────────────────────────
-  claude-haiku-4-5-20251001              6.8m            22.0k            $1.72
-  claude-opus-4-6                        1.0m            19.2k            $2.09
-  claude-sonnet-4-6                    194.1m           725.7k           $87.49
-  gpt-5.4                              111.9m           578.5k           $28.17
+  claude-haiku-4-5-20251001               3.4m            22.7k            $1.38
+  claude-opus-4-6                        42.4m           138.6k           $51.20
+  claude-sonnet-4-6                      24.4m           120.8k           $26.78
+  gpt-5-codex                             1.4m            33.8k            $0.77
+  gpt-5.1-codex                           2.4m            17.4k            $0.67
+  gpt-5.1-codex-max                      20.4m           124.0k            $5.42
+  gpt-5.2-codex                           4.5m           113.6k            $3.21
+  gpt-5.3-codex                         470.7m             2.4m          $155.90
+  gpt-5.4                               116.9m           470.5k           $53.20
   ─────────────────────────────────────────────────────────────────────────────────
 
-  Scanned 38 session(s) in 1.00s
+  Scanned 104 session(s) in 0.48s
 ```
 
 ## Data sources

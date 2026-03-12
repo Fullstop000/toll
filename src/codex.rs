@@ -1,3 +1,4 @@
+use crate::agent::Agent;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde_json::Value;
 use std::fs;
@@ -8,6 +9,38 @@ use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::{DailyUsageReport, TokenUsage, add_daily_usage};
+
+/// Codex usage collector.
+pub struct CodexAgent;
+
+impl CodexAgent {
+    /// Create a Codex agent collector.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl Agent for CodexAgent {
+    fn name(&self) -> &'static str {
+        "Codex"
+    }
+
+    fn data_dir(&self, home: &Path) -> PathBuf {
+        home.join(".codex").join("sessions")
+    }
+
+    fn collect_usage(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
+        collect_codex_usage(data_dir, since)
+    }
+
+    fn collect_daily_usage(
+        &self,
+        data_dir: &Path,
+        since: Option<DateTime<Utc>>,
+    ) -> DailyUsageReport {
+        collect_codex_daily_usage(data_dir, since)
+    }
+}
 
 /// Fast-path filter for Codex lines worth deserializing.
 fn codex_line_is_relevant(line: &str) -> bool {

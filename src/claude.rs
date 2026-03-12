@@ -1,13 +1,46 @@
+use crate::agent::Agent;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
+
+/// Claude Code usage collector.
+pub struct ClaudeAgent;
+
+impl ClaudeAgent {
+    /// Create a Claude Code agent collector.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl Agent for ClaudeAgent {
+    fn name(&self) -> &'static str {
+        "Claude Code"
+    }
+
+    fn data_dir(&self, home: &Path) -> std::path::PathBuf {
+        home.join(".claude").join("projects")
+    }
+
+    fn collect_usage(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
+        collect_claude_usage(data_dir, since)
+    }
+
+    fn collect_daily_usage(
+        &self,
+        data_dir: &Path,
+        since: Option<DateTime<Utc>>,
+    ) -> DailyUsageReport {
+        collect_claude_daily_usage(data_dir, since)
+    }
+}
 
 /// Parse Claude usage entries from any BufRead source.
 pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -169,7 +202,7 @@ pub fn parse_claude_session(path: &Path, since: Option<DateTime<Utc>>) -> TokenU
     parse_claude_lines(BufReader::new(file), since)
 }
 
-pub fn collect_claude_usage(projects_dir: &PathBuf, since: Option<DateTime<Utc>>) -> TokenUsage {
+pub fn collect_claude_usage(projects_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
     let mut total = TokenUsage::default();
 
     if !projects_dir.exists() {
@@ -198,7 +231,7 @@ pub fn collect_claude_usage(projects_dir: &PathBuf, since: Option<DateTime<Utc>>
 
 /// Collect Claude usage aggregated by local calendar date.
 pub fn collect_claude_daily_usage(
-    projects_dir: &PathBuf,
+    projects_dir: &Path,
     since: Option<DateTime<Utc>>,
 ) -> DailyUsageReport {
     let mut report = DailyUsageReport::default();
