@@ -1,15 +1,17 @@
+mod agent;
 mod claude;
 mod codex;
 mod display;
 mod pricing;
 mod usage;
 
+use agent::Agent;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::Parser;
 use std::path::PathBuf;
 
-use claude::collect_claude_usage;
-use codex::collect_codex_usage;
+use claude::ClaudeAgent;
+use codex::CodexAgent;
 use display::{NumberFormat, print_daily_table, print_single, print_table};
 use pricing::list_prices;
 use usage::{DailyUsage, TokenUsage, add_daily_usage};
@@ -67,6 +69,84 @@ fn version_text() -> String {
     format!("toll {}", env!("CARGO_PKG_VERSION"))
 }
 
+/// Collect usage for a single agent via the shared abstraction.
+fn collect_usage_for_agent(
+    agent: &dyn Agent,
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> TokenUsage {
+    let data_dir = agent.data_dir(home);
+    agent.collect_usage(&data_dir, since)
+}
+
+/// Collect daily usage for a single agent via the shared abstraction.
+fn collect_daily_usage_for_agent(
+    agent: &dyn Agent,
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> usage::DailyUsageReport {
+    let data_dir = agent.data_dir(home);
+    agent.collect_daily_usage(&data_dir, since)
+}
+
+/// Collected usage paired with the agent display name.
+struct AgentUsage<'a> {
+    name: &'a str,
+    usage: TokenUsage,
+}
+
+/// Select enabled agents in display order based on CLI filters.
+fn selected_agents<'a>(
+    show_claude: bool,
+    show_codex: bool,
+    claude: &'a ClaudeAgent,
+    codex: &'a CodexAgent,
+) -> Vec<&'a dyn Agent> {
+    let mut agents: Vec<&dyn Agent> = Vec::new();
+    if show_claude {
+        agents.push(claude);
+    }
+    if show_codex {
+        agents.push(codex);
+    }
+    agents
+}
+
+/// Collect aggregate usage for all enabled agents.
+fn collect_selected_usage<'a>(
+    agents: &[&'a dyn Agent],
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> Vec<AgentUsage<'a>> {
+    agents
+        .iter()
+        .map(|agent| AgentUsage {
+            name: agent.name(),
+            usage: collect_usage_for_agent(*agent, home, since),
+        })
+        .collect()
+}
+
+/// Collect and merge daily usage for all enabled agents.
+fn collect_selected_daily_usage(
+    agents: &[&dyn Agent],
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> (DailyUsage, u32) {
+    let mut by_day = DailyUsage::default();
+    let mut sessions_total = 0u32;
+
+    for agent in agents {
+        let report = collect_daily_usage_for_agent(*agent, home, since);
+        sessions_total += report.sessions_scanned;
+        for (date, usage) in report.by_day {
+            add_daily_usage(&mut by_day, date, &usage);
+        }
+    }
+
+    (by_day, sessions_total)
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -119,29 +199,14 @@ fn main() {
     let show_codex = !args.claude;
 
     let home = home_dir();
+    let claude_agent = ClaudeAgent::new();
+    let codex_agent = CodexAgent::new();
+    let agents = selected_agents(show_claude, show_codex, &claude_agent, &codex_agent);
 
     let t0 = std::time::Instant::now();
 
-    let claude_projects = home.join(".claude").join("projects");
-    let codex_sessions = home.join(".codex").join("sessions");
-
     if args.by_day {
-        let mut by_day = DailyUsage::default();
-        let mut sessions_total = 0u32;
-        if show_claude {
-            let report = claude::collect_claude_daily_usage(&claude_projects, since);
-            sessions_total += report.sessions_scanned;
-            for (date, usage) in report.by_day {
-                add_daily_usage(&mut by_day, date, &usage);
-            }
-        }
-        if show_codex {
-            let report = codex::collect_codex_daily_usage(&codex_sessions, since);
-            sessions_total += report.sessions_scanned;
-            for (date, usage) in report.by_day {
-                add_daily_usage(&mut by_day, date, &usage);
-            }
-        }
+        let (by_day, sessions_total) = collect_selected_daily_usage(&agents, &home, since);
         let elapsed = t0.elapsed();
         print_daily_table(&period, &by_day, number_format);
         println!(
@@ -150,60 +215,38 @@ fn main() {
             elapsed.as_secs_f64()
         );
         println!();
-    } else if !show_claude {
-        let codex_usage = if show_codex {
-            collect_codex_usage(&codex_sessions, since)
-        } else {
-            TokenUsage::default()
-        };
-        let elapsed = t0.elapsed();
-        print_single("Codex", &codex_usage, number_format);
-        println!(
-            "  Scanned {} session(s) in {:.2}s",
-            codex_usage.sessions,
-            elapsed.as_secs_f64()
-        );
-        println!();
-    } else if !show_codex {
-        let claude_usage = if show_claude {
-            collect_claude_usage(&claude_projects, since)
-        } else {
-            TokenUsage::default()
-        };
-        let elapsed = t0.elapsed();
-        print_single("Claude Code", &claude_usage, number_format);
-        println!(
-            "  Scanned {} session(s) in {:.2}s",
-            claude_usage.sessions,
-            elapsed.as_secs_f64()
-        );
-        println!();
     } else {
-        let claude_usage = if show_claude {
-            collect_claude_usage(&claude_projects, since)
-        } else {
-            TokenUsage::default()
-        };
-        let codex_usage = if show_codex {
-            collect_codex_usage(&codex_sessions, since)
-        } else {
-            TokenUsage::default()
-        };
+        let usages = collect_selected_usage(&agents, &home, since);
         let elapsed = t0.elapsed();
-        print_table(&claude_usage, &codex_usage, number_format);
-        let sessions_total = claude_usage.sessions + codex_usage.sessions;
-        println!(
-            "  Scanned {} session(s) in {:.2}s",
-            sessions_total,
-            elapsed.as_secs_f64()
-        );
-        println!();
+        match usages.as_slice() {
+            [single] => {
+                print_single(single.name, &single.usage, number_format);
+                println!(
+                    "  Scanned {} session(s) in {:.2}s",
+                    single.usage.sessions,
+                    elapsed.as_secs_f64()
+                );
+                println!();
+            }
+            [claude, codex] => {
+                print_table(&claude.usage, &codex.usage, number_format);
+                let sessions_total = claude.usage.sessions + codex.usage.sessions;
+                println!(
+                    "  Scanned {} session(s) in {:.2}s",
+                    sessions_total,
+                    elapsed.as_secs_f64()
+                );
+                println!();
+            }
+            _ => unreachable!("clap should ensure at least one agent is enabled"),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn parses_detail_flag() {
@@ -235,5 +278,36 @@ mod tests {
     fn parses_by_day_flag() {
         let args = Args::try_parse_from(["toll", "--by-day"]).expect("should parse");
         assert!(args.by_day);
+    }
+
+    #[test]
+    fn agents_expose_distinct_names_and_data_dirs() {
+        let claude = claude::ClaudeAgent::new();
+        let codex = codex::CodexAgent::new();
+        let agents: [&dyn agent::Agent; 2] = [&claude, &codex];
+
+        assert_eq!(agents[0].name(), "Claude Code");
+        assert_eq!(agents[1].name(), "Codex");
+        assert_eq!(agents[0].data_dir(Path::new("/tmp")), PathBuf::from("/tmp/.claude/projects"));
+        assert_eq!(agents[1].data_dir(Path::new("/tmp")), PathBuf::from("/tmp/.codex/sessions"));
+    }
+
+    #[test]
+    fn selected_agents_follow_cli_filters() {
+        let claude = claude::ClaudeAgent::new();
+        let codex = codex::CodexAgent::new();
+
+        let claude_only = selected_agents(true, false, &claude, &codex);
+        assert_eq!(claude_only.len(), 1);
+        assert_eq!(claude_only[0].name(), "Claude Code");
+
+        let codex_only = selected_agents(false, true, &claude, &codex);
+        assert_eq!(codex_only.len(), 1);
+        assert_eq!(codex_only[0].name(), "Codex");
+
+        let both = selected_agents(true, true, &claude, &codex);
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[0].name(), "Claude Code");
+        assert_eq!(both[1].name(), "Codex");
     }
 }
