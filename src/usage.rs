@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use chrono::NaiveDate;
+
 #[derive(Default, Debug)]
 pub struct TokenUsage {
     /// Total input tokens sent (= pure_input + cache_write + cache_read)
@@ -16,6 +18,16 @@ pub struct TokenUsage {
     pub unknown_cost_sessions: u32,
     /// Per-model breakdown (model name → usage); inner entries keep by_model empty.
     pub by_model: BTreeMap<String, TokenUsage>,
+}
+
+/// Aggregated token usage keyed by local calendar date.
+pub type DailyUsage = BTreeMap<NaiveDate, TokenUsage>;
+
+/// Result of a daily aggregation pass plus the number of scanned sessions.
+#[derive(Default, Debug)]
+pub struct DailyUsageReport {
+    pub by_day: DailyUsage,
+    pub sessions_scanned: u32,
 }
 
 impl TokenUsage {
@@ -65,9 +77,15 @@ impl TokenUsage {
     }
 }
 
+/// Merge a usage snapshot into the given local-date bucket.
+pub fn add_daily_usage(by_day: &mut DailyUsage, date: NaiveDate, usage: &TokenUsage) {
+    by_day.entry(date).or_default().add(usage);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
 
     #[test]
     fn add_scalars() {
@@ -159,5 +177,35 @@ mod tests {
         assert!(!u.has_unknown_cost());
         u.unknown_cost_sessions = 1;
         assert!(u.has_unknown_cost());
+    }
+
+    #[test]
+    fn add_daily_usage_merges_same_day() {
+        let mut by_day = DailyUsage::default();
+        let date = NaiveDate::from_ymd_opt(2026, 3, 12).expect("valid date");
+
+        add_daily_usage(
+            &mut by_day,
+            date,
+            &TokenUsage {
+                input_tokens: 100,
+                sessions: 1,
+                ..Default::default()
+            },
+        );
+        add_daily_usage(
+            &mut by_day,
+            date,
+            &TokenUsage {
+                output_tokens: 25,
+                sessions: 1,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(by_day.len(), 1);
+        assert_eq!(by_day[&date].input_tokens, 100);
+        assert_eq!(by_day[&date].output_tokens, 25);
+        assert_eq!(by_day[&date].sessions, 2);
     }
 }

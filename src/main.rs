@@ -10,9 +10,9 @@ use std::path::PathBuf;
 
 use claude::collect_claude_usage;
 use codex::collect_codex_usage;
-use display::{NumberFormat, print_single, print_table};
+use display::{NumberFormat, print_daily_table, print_single, print_table};
 use pricing::list_prices;
-use usage::TokenUsage;
+use usage::{DailyUsage, TokenUsage, add_daily_usage};
 
 #[derive(Parser)]
 #[command(
@@ -23,6 +23,7 @@ use usage::TokenUsage;
   toll              # all-time stats
   toll --today      # today only
   toll --days 7     # last 7 days
+  toll --by-day --days 7  # daily summary table
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --detail     # full token counts")]
@@ -51,6 +52,9 @@ struct Args {
 
     #[arg(long, help = "Show full token counts instead of compact b/m/k units")]
     detail: bool,
+
+    #[arg(long, help = "Show usage aggregated by day")]
+    by_day: bool,
 }
 
 fn home_dir() -> PathBuf {
@@ -97,8 +101,14 @@ fn main() {
         period = "all time".to_string();
     }
 
-    println!("\nToken usage — {}", period);
-    println!("Collected: {}", Local::now().format("%Y-%m-%d %H:%M:%S %Z"));
+    if !args.by_day {
+        println!("\nToken usage — {}", period);
+    }
+    println!(
+        "{}Collected: {}",
+        if args.by_day { "\n" } else { "" },
+        Local::now().format("%Y-%m-%d %H:%M:%S %Z")
+    );
     let number_format = if args.detail {
         NumberFormat::Full
     } else {
@@ -112,35 +122,83 @@ fn main() {
 
     let t0 = std::time::Instant::now();
 
-    let claude_usage = if show_claude {
-        collect_claude_usage(&home.join(".claude").join("projects"), since)
-    } else {
-        TokenUsage::default()
-    };
+    let claude_projects = home.join(".claude").join("projects");
+    let codex_sessions = home.join(".codex").join("sessions");
 
-    let codex_usage = if show_codex {
-        collect_codex_usage(&home.join(".codex").join("sessions"), since)
-    } else {
-        TokenUsage::default()
-    };
-
-    let elapsed = t0.elapsed();
-
-    if !show_claude {
+    if args.by_day {
+        let mut by_day = DailyUsage::default();
+        let mut sessions_total = 0u32;
+        if show_claude {
+            let report = claude::collect_claude_daily_usage(&claude_projects, since);
+            sessions_total += report.sessions_scanned;
+            for (date, usage) in report.by_day {
+                add_daily_usage(&mut by_day, date, &usage);
+            }
+        }
+        if show_codex {
+            let report = codex::collect_codex_daily_usage(&codex_sessions, since);
+            sessions_total += report.sessions_scanned;
+            for (date, usage) in report.by_day {
+                add_daily_usage(&mut by_day, date, &usage);
+            }
+        }
+        let elapsed = t0.elapsed();
+        print_daily_table(&period, &by_day, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            sessions_total,
+            elapsed.as_secs_f64()
+        );
+        println!();
+    } else if !show_claude {
+        let codex_usage = if show_codex {
+            collect_codex_usage(&codex_sessions, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_single("Codex", &codex_usage, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            codex_usage.sessions,
+            elapsed.as_secs_f64()
+        );
+        println!();
     } else if !show_codex {
+        let claude_usage = if show_claude {
+            collect_claude_usage(&claude_projects, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_single("Claude Code", &claude_usage, number_format);
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            claude_usage.sessions,
+            elapsed.as_secs_f64()
+        );
+        println!();
     } else {
+        let claude_usage = if show_claude {
+            collect_claude_usage(&claude_projects, since)
+        } else {
+            TokenUsage::default()
+        };
+        let codex_usage = if show_codex {
+            collect_codex_usage(&codex_sessions, since)
+        } else {
+            TokenUsage::default()
+        };
+        let elapsed = t0.elapsed();
         print_table(&claude_usage, &codex_usage, number_format);
+        let sessions_total = claude_usage.sessions + codex_usage.sessions;
+        println!(
+            "  Scanned {} session(s) in {:.2}s",
+            sessions_total,
+            elapsed.as_secs_f64()
+        );
+        println!();
     }
-
-    let sessions_total = claude_usage.sessions + codex_usage.sessions;
-    println!(
-        "  Scanned {} session(s) in {:.2}s",
-        sessions_total,
-        elapsed.as_secs_f64()
-    );
-    println!();
 }
 
 #[cfg(test)]
@@ -171,5 +229,11 @@ mod tests {
             version_text(),
             format!("toll {}", env!("CARGO_PKG_VERSION"))
         );
+    }
+
+    #[test]
+    fn parses_by_day_flag() {
+        let args = Args::try_parse_from(["toll", "--by-day"]).expect("should parse");
+        assert!(args.by_day);
     }
 }

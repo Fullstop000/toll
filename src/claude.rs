@@ -1,12 +1,13 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::pricing;
-use crate::usage::TokenUsage;
+use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
 
 /// Parse Claude usage entries from any BufRead source.
 pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -81,6 +82,82 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
     usage
 }
 
+/// Parse Claude usage entries into local calendar-date buckets.
+pub fn parse_claude_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>>) -> DailyUsage {
+    let mut by_day = DailyUsage::default();
+    let mut session_days = HashSet::new();
+    let mut unknown_cost_days = HashSet::new();
+
+    for line in reader.lines().map_while(Result::ok) {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v): Result<Value, _> = serde_json::from_str(&line) else {
+            continue;
+        };
+
+        let ts_str = v.get("timestamp").and_then(|t| t.as_str()).or_else(|| {
+            v.get("message")
+                .and_then(|m| m.get("timestamp"))
+                .and_then(|t| t.as_str())
+        });
+        let Some(dt) = ts_str.and_then(|ts| ts.parse::<DateTime<Utc>>().ok()) else {
+            continue;
+        };
+        if let Some(since_dt) = since
+            && dt < since_dt
+        {
+            continue;
+        }
+
+        let Some(msg) = v.get("message") else {
+            continue;
+        };
+        let Some(u) = msg.get("usage") else { continue };
+
+        let inp = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        let cache_create = u
+            .get("cache_creation_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let cache_read = u
+            .get("cache_read_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        let date: NaiveDate = dt.with_timezone(&Local).date_naive();
+
+        let model = msg.get("model").and_then(|m| m.as_str()).unwrap_or("");
+        let (cost_usd, unknown_cost_sessions) = if !model.is_empty() && !model.starts_with('<') {
+            match pricing::lookup(model) {
+                Some(p) => (p.cost(inp, cache_create, cache_read, out), 0),
+                None => (0.0, if unknown_cost_days.insert(date) { 1 } else { 0 }),
+            }
+        } else {
+            (0.0, 0)
+        };
+
+        add_daily_usage(
+            &mut by_day,
+            date,
+            &TokenUsage {
+                input_tokens: inp + cache_create + cache_read,
+                cached_input_tokens: cache_read,
+                cache_write_tokens: cache_create,
+                output_tokens: out,
+                sessions: if session_days.insert(date) { 1 } else { 0 },
+                cost_usd,
+                unknown_cost_sessions,
+                ..Default::default()
+            },
+        );
+    }
+
+    by_day
+}
+
 /// Parse a Claude session file, summing all message.usage entries.
 pub fn parse_claude_session(path: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
     let Ok(file) = fs::File::open(path) else {
@@ -117,6 +194,44 @@ pub fn collect_claude_usage(projects_dir: &PathBuf, since: Option<DateTime<Utc>>
     }
 
     total
+}
+
+/// Collect Claude usage aggregated by local calendar date.
+pub fn collect_claude_daily_usage(
+    projects_dir: &PathBuf,
+    since: Option<DateTime<Utc>>,
+) -> DailyUsageReport {
+    let mut report = DailyUsageReport::default();
+
+    if !projects_dir.exists() {
+        return report;
+    }
+
+    for entry in WalkDir::new(projects_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.file_name()
+                    .to_str()
+                    .map(|n| n.ends_with(".jsonl"))
+                    .unwrap_or(false)
+        })
+    {
+        let Ok(file) = fs::File::open(entry.path()) else {
+            continue;
+        };
+        let session_by_day = parse_claude_lines_by_day(BufReader::new(file), since);
+        if session_by_day.is_empty() {
+            continue;
+        }
+        report.sessions_scanned += 1;
+        for (date, day_usage) in session_by_day {
+            add_daily_usage(&mut report.by_day, date, &day_usage);
+        }
+    }
+
+    report
 }
 
 #[cfg(test)]
@@ -243,5 +358,38 @@ mod tests {
         );
         let usage = parse_claude_lines(cursor(&data), None);
         assert_eq!(usage.input_tokens, 100);
+    }
+
+    #[test]
+    fn parse_claude_lines_by_day_groups_local_dates() {
+        let data = format!(
+            "{}\n{}\n",
+            make_line("2026-03-09T00:30:00Z", "claude-sonnet-4-6", 100, 0, 0, 10),
+            make_line("2026-03-09T15:30:00Z", "claude-sonnet-4-6", 200, 0, 0, 20),
+        );
+
+        let by_day = parse_claude_lines_by_day(cursor(&data), None);
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date");
+        assert_eq!(by_day.len(), 1);
+        assert_eq!(by_day[&date].input_tokens, 300);
+        assert_eq!(by_day[&date].output_tokens, 30);
+        assert_eq!(by_day[&date].sessions, 1);
+    }
+
+    #[test]
+    fn parse_claude_lines_by_day_counts_unknown_cost_once_per_session_day() {
+        let data = format!(
+            "{}\n{}\n",
+            make_line("2026-03-09T00:30:00Z", "future-model-xyz", 100, 0, 0, 10),
+            make_line("2026-03-09T15:30:00Z", "future-model-xyz", 200, 0, 0, 20),
+        );
+
+        let by_day = parse_claude_lines_by_day(cursor(&data), None);
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date");
+        assert_eq!(by_day[&date].sessions, 1);
+        assert_eq!(by_day[&date].unknown_cost_sessions, 1);
+        assert_eq!(crate::display::fmt_cost(&by_day[&date]), "unknown");
     }
 }
