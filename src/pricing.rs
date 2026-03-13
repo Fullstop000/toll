@@ -274,6 +274,19 @@ static PRICING: &[(&str, ModelPricing)] = &[
             output_per_m: 60.0,
         },
     ),
+    // ── Moonshot AI / Kimi Code ───────────────────────────────────────────────
+    // kimi-for-coding: approximate pricing based on Kimi K2.5 API rates
+    // ($0.60 in / $2.50 out / cache_read $0.15 per 1M tokens)
+    // Note: Kimi Code is subscription-based; actual per-token cost may differ.
+    (
+        "kimi-for-coding",
+        ModelPricing {
+            input_per_m: 0.60,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.15,
+            output_per_m: 2.50,
+        },
+    ),
 ];
 
 /// Print all known model prices as a formatted table.
