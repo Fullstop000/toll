@@ -2,13 +2,13 @@
 
 [![crates.io](https://img.shields.io/crates/v/toll.svg)](https://crates.io/crates/toll)
 
-Token usage statistics for CLI coding agents — Claude Code and Codex CLI.
+Token usage statistics for CLI coding agents — Claude Code, Codex CLI, and Kimi Code.
 
 The name is a double metaphor: tokens are the *toll* you pay to use AI coding agents, and heavy usage *takes a toll*.
 
 ## Features
 
-- Tracks token usage from **Claude Code** (`~/.claude/projects/`) and **Codex CLI** (`~/.codex/sessions/`)
+- Tracks token usage from **Claude Code** (`~/.claude/projects/`), **Codex CLI** (`~/.codex/sessions/`), and **Kimi Code** (`~/.kimi/sessions/`)
 - Shows input, output, cached tokens, cache hit rate, and estimated USD cost
 - Uses compact `k` / `m` / `b` token units by default, with `--detail` for raw counts
 - Per-model breakdown across all sessions
@@ -22,6 +22,7 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 |------|--------------------|------------|
 | [Claude Code](https://github.com/anthropics/claude-code) | All versions (JSONL logs present since launch) | `message.usage` entries in `~/.claude/projects/**/*.jsonl` |
 | [Codex CLI](https://github.com/openai/codex) | ≥ 0.1 (rollout log format) | `token_count` events in `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+| [Kimi Code](https://www.kimi.com/code) | All versions | `StatusUpdate` token_usage events in `~/.kimi/sessions/**/<session>/wire.jsonl` |
 
 ## Installation
 
@@ -58,7 +59,7 @@ cargo install --path .
 ## Usage
 
 ```text
-Token usage statistics for Claude Code and Codex CLI
+Token usage statistics for Claude Code, Codex CLI, and Kimi Code
 
 Usage: toll [OPTIONS]
 
@@ -68,6 +69,7 @@ Options:
       --days <N>     Show last N days
       --claude       Show Claude stats only
       --codex        Show Codex stats only
+      --kimi         Show Kimi Code stats only
       --json         Emit JSON to stdout
       --csv          Emit CSV to stdout
       --list-prices  List all supported models and their prices, then exit
@@ -82,6 +84,7 @@ Examples:
   toll --by-day --days 7  # daily summary table
   toll --claude     # Claude only
   toll --codex      # Codex only
+  toll --kimi       # Kimi Code only
   toll --detail     # full token counts
   toll --json       # machine-readable JSON
   toll --csv        # terminal CSV export
@@ -91,34 +94,29 @@ Examples:
 
 ```text
 Token usage — all time
-Collected: 2026-03-13 00:57:37 +08:00
+Collected: 2026-03-13 20:20:38 +08:00
 
-              Sessions   Input  Cached  Hit Rate  Net Input  Output   Total      Cost 
+              Sessions   Input  Cached  Hit Rate  Net Input  Output   Total      Cost
   ════════════════════════════════════════════════════════════════════════════════════
-  Claude Code       17   69.8m   59.1m     84.7%      10.7m  282.0k   70.1m    $79.36 
-  Codex             87  615.5m  579.7m     94.2%      35.8m    3.2m  618.7m  $219.18* 
+  Claude Code       38  316.1m  304.2m     96.2%      11.9m    1.3m  317.5m  $168.59
+  Codex             21  148.9m  137.4m     92.3%      11.5m  777.8k  149.7m   $74.70
+  Kimi Code         15   34.6m   32.4m     93.6%       2.2m  206.2k   34.8m    $6.70
   ────────────────────────────────────────────────────────────────────────────────────
-  Combined         104  685.3m  638.8m     93.2%      46.5m    3.5m  688.8m  $298.54* 
+  Combined          74  499.6m  474.0m     94.9%      25.6m    2.3m  501.9m  $249.99
   ────────────────────────────────────────────────────────────────────────────────────
-
-  * pricing unavailable for 1 session(s) — cost is understated
 
   By model:
   ─────────────────────────────────────────────────────────────────────────────────
   Model                                 Tokens           Output             Cost
   ─────────────────────────────────────────────────────────────────────────────────
-  claude-haiku-4-5-20251001               3.4m            22.7k            $1.38
-  claude-opus-4-6                        42.4m           138.6k           $51.20
-  claude-sonnet-4-6                      24.4m           120.8k           $26.78
-  gpt-5-codex                             1.4m            33.8k            $0.77
-  gpt-5.1-codex                           2.4m            17.4k            $0.67
-  gpt-5.1-codex-max                      20.4m           124.0k            $5.42
-  gpt-5.2-codex                           4.5m           113.6k            $3.21
-  gpt-5.3-codex                         470.7m             2.4m          $155.90
-  gpt-5.4                               116.9m           470.5k           $53.20
+  claude-haiku-4-5-20251001               9.4m            40.5k            $2.71
+  claude-opus-4-6                        49.7m           317.2k           $45.17
+  claude-sonnet-4-6                     258.3m           988.2k          $120.72
+  gpt-5.4                               149.7m           777.8k           $74.70
+  kimi-for-coding                        34.8m           206.2k            $6.70
   ─────────────────────────────────────────────────────────────────────────────────
 
-  Scanned 104 session(s) in 0.48s
+  Scanned 74 session(s) in 1.36s
 ```
 
 ## Data sources
@@ -127,6 +125,7 @@ Collected: 2026-03-13 00:57:37 +08:00
 |------|----------|-------------|
 | Claude Code | `~/.claude/projects/**/*.jsonl` | `message.usage` per API call — sums `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens` |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | last `token_count` event per session (cumulative totals) |
+| Kimi Code | `~/.kimi/sessions/**/<session>/wire.jsonl` | `StatusUpdate` events — sums `input_other`, `input_cache_read`, `input_cache_creation`, `output` per API call |
 
 ## License
 

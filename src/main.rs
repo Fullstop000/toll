@@ -2,6 +2,7 @@ mod agent;
 mod claude;
 mod codex;
 mod display;
+mod kimi;
 mod output;
 mod pricing;
 mod usage;
@@ -14,6 +15,7 @@ use std::path::PathBuf;
 use claude::ClaudeAgent;
 use codex::CodexAgent;
 use display::{NumberFormat, print_daily_table, print_multi_table, print_single};
+use kimi::KimiAgent;
 use output::{
     OutputFilters, OutputMode, render_daily_csv, render_daily_json, render_summary_csv,
     render_summary_json,
@@ -24,7 +26,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
 #[derive(Parser)]
 #[command(
     name = "toll",
-    about = "Token usage statistics for Claude Code and Codex CLI"
+    about = "Token usage statistics for Claude Code, Codex CLI, and Kimi Code"
 )]
 #[command(after_help = "Examples:
   toll              # all-time stats
@@ -33,6 +35,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
   toll --by-day --days 7  # daily summary table
   toll --claude     # Claude only
   toll --codex      # Codex only
+  toll --kimi       # Kimi Code only
   toll --detail     # full token counts")]
 struct Args {
     #[arg(
@@ -48,11 +51,14 @@ struct Args {
     #[arg(long, value_name = "N", help = "Show last N days")]
     days: Option<u32>,
 
-    #[arg(long, conflicts_with = "codex", help = "Show Claude stats only")]
+    #[arg(long, help = "Show Claude stats only")]
     claude: bool,
 
-    #[arg(long, conflicts_with = "claude", help = "Show Codex stats only")]
+    #[arg(long, help = "Show Codex stats only")]
     codex: bool,
+
+    #[arg(long, help = "Show Kimi Code stats only")]
+    kimi: bool,
 
     #[arg(long, help = "List all supported models and their prices, then exit")]
     list_prices: bool,
@@ -115,23 +121,6 @@ fn collect_daily_usage_for_agent(
 struct AgentUsage<'a> {
     name: &'a str,
     usage: TokenUsage,
-}
-
-/// Select enabled agents in display order based on CLI filters.
-fn selected_agents<'a>(
-    show_claude: bool,
-    show_codex: bool,
-    claude: &'a ClaudeAgent,
-    codex: &'a CodexAgent,
-) -> Vec<&'a dyn Agent> {
-    let mut agents: Vec<&dyn Agent> = Vec::new();
-    if show_claude {
-        agents.push(claude);
-    }
-    if show_codex {
-        agents.push(codex);
-    }
-    agents
 }
 
 /// Collect aggregate usage for all enabled agents.
@@ -222,18 +211,29 @@ fn main() {
         NumberFormat::Compact
     };
 
-    let show_claude = !args.codex;
-    let show_codex = !args.claude;
+    let show_all = !args.claude && !args.codex && !args.kimi;
+    let show_claude = show_all || args.claude;
+    let show_codex = show_all || args.codex;
+    let show_kimi = show_all || args.kimi;
 
     let home = home_dir();
     let claude_agent = ClaudeAgent::new();
     let codex_agent = CodexAgent::new();
-    let agents = selected_agents(show_claude, show_codex, &claude_agent, &codex_agent);
+    let kimi_agent = KimiAgent::new();
+    let agents: Vec<&dyn Agent> = [
+        (show_claude, &claude_agent as &dyn Agent),
+        (show_codex, &codex_agent as &dyn Agent),
+        (show_kimi, &kimi_agent as &dyn Agent),
+    ]
+    .into_iter()
+    .filter_map(|(show, a)| show.then_some(a))
+    .collect();
     let filters = OutputFilters {
         today: args.today,
         days: args.days,
         claude: args.claude,
         codex: args.codex,
+        kimi: args.kimi,
         by_day: args.by_day,
         detail: args.detail,
     };
@@ -291,11 +291,7 @@ fn main() {
                     );
                     println!();
                 }
-                many => {
-                    let display_rows: Vec<(&str, &TokenUsage)> = many
-                        .iter()
-                        .map(|entry| (entry.name, &entry.usage))
-                        .collect();
+                _ => {
                     print_multi_table(&display_rows, number_format);
                     println!(
                         "  Scanned {} session(s) in {:.2}s",
@@ -381,10 +377,12 @@ mod tests {
     fn agents_expose_distinct_names_and_data_dirs() {
         let claude = claude::ClaudeAgent::new();
         let codex = codex::CodexAgent::new();
-        let agents: [&dyn agent::Agent; 2] = [&claude, &codex];
+        let kimi = kimi::KimiAgent::new();
+        let agents: [&dyn agent::Agent; 3] = [&claude, &codex, &kimi];
 
         assert_eq!(agents[0].name(), "Claude Code");
         assert_eq!(agents[1].name(), "Codex");
+        assert_eq!(agents[2].name(), "Kimi Code");
         assert_eq!(
             agents[0].data_dir(Path::new("/tmp")),
             PathBuf::from("/tmp/.claude/projects")
@@ -393,24 +391,47 @@ mod tests {
             agents[1].data_dir(Path::new("/tmp")),
             PathBuf::from("/tmp/.codex/sessions")
         );
+        assert_eq!(
+            agents[2].data_dir(Path::new("/tmp")),
+            PathBuf::from("/tmp/.kimi/sessions")
+        );
     }
 
     #[test]
-    fn selected_agents_follow_cli_filters() {
+    fn agent_filter_selects_correct_subset() {
         let claude = claude::ClaudeAgent::new();
         let codex = codex::CodexAgent::new();
+        let kimi = kimi::KimiAgent::new();
 
-        let claude_only = selected_agents(true, false, &claude, &codex);
+        fn filter<'a>(
+            flags: [bool; 3],
+            agents: [&'a dyn agent::Agent; 3],
+        ) -> Vec<&'a dyn agent::Agent> {
+            flags
+                .into_iter()
+                .zip(agents)
+                .filter_map(|(show, a)| show.then_some(a))
+                .collect()
+        }
+
+        let all: [&dyn agent::Agent; 3] = [&claude, &codex, &kimi];
+
+        let claude_only = filter([true, false, false], all);
         assert_eq!(claude_only.len(), 1);
         assert_eq!(claude_only[0].name(), "Claude Code");
 
-        let codex_only = selected_agents(false, true, &claude, &codex);
+        let codex_only = filter([false, true, false], all);
         assert_eq!(codex_only.len(), 1);
         assert_eq!(codex_only[0].name(), "Codex");
 
-        let both = selected_agents(true, true, &claude, &codex);
-        assert_eq!(both.len(), 2);
-        assert_eq!(both[0].name(), "Claude Code");
-        assert_eq!(both[1].name(), "Codex");
+        let kimi_only = filter([false, false, true], all);
+        assert_eq!(kimi_only.len(), 1);
+        assert_eq!(kimi_only[0].name(), "Kimi Code");
+
+        let all_three = filter([true, true, true], all);
+        assert_eq!(all_three.len(), 3);
+        assert_eq!(all_three[0].name(), "Claude Code");
+        assert_eq!(all_three[1].name(), "Codex");
+        assert_eq!(all_three[2].name(), "Kimi Code");
     }
 }

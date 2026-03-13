@@ -19,6 +19,7 @@ pub struct OutputFilters {
     pub days: Option<u32>,
     pub claude: bool,
     pub codex: bool,
+    pub kimi: bool,
     pub by_day: bool,
     pub detail: bool,
 }
@@ -384,6 +385,7 @@ mod tests {
                 days: None,
                 claude: false,
                 codex: false,
+                kimi: false,
                 by_day: false,
                 detail: false,
             },
