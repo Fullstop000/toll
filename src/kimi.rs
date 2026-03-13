@@ -78,10 +78,7 @@ fn extract_tokens(tu: &Value) -> KimiTokens {
 /// Return the `token_usage` object from a `StatusUpdate` line, or `None`.
 ///
 /// Also applies the optional `since` date filter against the line's timestamp.
-fn status_update_tokens<'a>(
-    v: &'a Value,
-    since: Option<DateTime<Utc>>,
-) -> Option<&'a Value> {
+fn status_update_tokens(v: &Value, since: Option<DateTime<Utc>>) -> Option<&Value> {
     let msg = v.get("message")?;
     if msg.get("type")?.as_str()? != "StatusUpdate" {
         return None;
@@ -121,7 +118,12 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
         let Some(tu) = status_update_tokens(&v, since) else {
             continue;
         };
-        let KimiTokens { inp_other, cache_read, cache_create, out } = extract_tokens(tu);
+        let KimiTokens {
+            inp_other,
+            cache_read,
+            cache_create,
+            out,
+        } = extract_tokens(tu);
 
         usage.input_tokens += inp_other + cache_read + cache_create;
         usage.cached_input_tokens += cache_read;
@@ -165,10 +167,10 @@ pub fn parse_kimi_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>
         let Some(dt) = v.get("timestamp").and_then(parse_unix_ts) else {
             continue;
         };
-        if let Some(since_dt) = since {
-            if dt < since_dt {
-                continue;
-            }
+        if let Some(since_dt) = since
+            && dt < since_dt
+        {
+            continue;
         }
         let Some(tu) = msg
             .and_then(|m| m.get("payload"))
@@ -177,7 +179,12 @@ pub fn parse_kimi_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>
             continue;
         };
 
-        let KimiTokens { inp_other, cache_read, cache_create, out } = extract_tokens(tu);
+        let KimiTokens {
+            inp_other,
+            cache_read,
+            cache_create,
+            out,
+        } = extract_tokens(tu);
         let date: NaiveDate = dt.with_timezone(&Local).date_naive();
 
         let (cost_usd, unknown_cost_sessions) = match pricing {

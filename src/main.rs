@@ -123,7 +123,6 @@ struct AgentUsage<'a> {
     usage: TokenUsage,
 }
 
-
 /// Collect aggregate usage for all enabled agents.
 fn collect_selected_usage<'a>(
     agents: &[&'a dyn Agent],
