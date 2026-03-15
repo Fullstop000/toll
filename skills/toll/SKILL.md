@@ -6,7 +6,7 @@ license: MIT
 compatibility: Requires the `toll` binary to be installed. Supports Linux and macOS (x86_64 and ARM64). Reads logs from ~/.claude/projects/**/*.jsonl (Claude Code) and ~/.codex/sessions/ (Codex CLI). No network access required at runtime.
 metadata:
   author: Fullstop000
-  version: 1.0.5
+  version: 1.0.6
   repository: https://github.com/Fullstop000/toll
   homepage: https://github.com/Fullstop000/toll
 ---
