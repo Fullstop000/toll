@@ -19,7 +19,7 @@ impl GeminiAgent {
 
 impl Agent for GeminiAgent {
     fn name(&self) -> &'static str {
-        "Gemini CLI"
+        "Gemini"
     }
 
     fn data_dir(&self, home: &Path) -> std::path::PathBuf {

@@ -28,7 +28,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
 #[derive(Parser)]
 #[command(
     name = "toll",
-    about = "Token usage statistics for Claude Code, Codex CLI, Kimi Code, and Gemini CLI"
+    about = "Token usage statistics for Claude Code, Codex CLI, Kimi Code, and Gemini"
 )]
 #[command(after_help = "Examples:
   toll              # all-time stats
@@ -38,7 +38,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
-  toll --gemini     # Gemini CLI only
+  toll --gemini     # Gemini only
   toll --detail     # full token counts")]
 struct Args {
     #[arg(
@@ -63,7 +63,7 @@ struct Args {
     #[arg(long, help = "Show Kimi Code stats only")]
     kimi: bool,
 
-    #[arg(long, help = "Show Gemini CLI stats only")]
+    #[arg(long, help = "Show Gemini stats only")]
     gemini: bool,
 
     #[arg(long, help = "List all supported models and their prices, then exit")]
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(agents[0].name(), "Claude Code");
         assert_eq!(agents[1].name(), "Codex");
         assert_eq!(agents[2].name(), "Kimi Code");
-        assert_eq!(agents[3].name(), "Gemini CLI");
+        assert_eq!(agents[3].name(), "Gemini");
         assert_eq!(
             agents[0].data_dir(Path::new("/tmp")),
             PathBuf::from("/tmp/.claude/projects")
@@ -439,11 +439,11 @@ mod tests {
 
         let gemini_only = filter([false, false, false, true], all);
         assert_eq!(gemini_only.len(), 1);
-        assert_eq!(gemini_only[0].name(), "Gemini CLI");
+        assert_eq!(gemini_only[0].name(), "Gemini");
 
         let all_four = filter([true, true, true, true], all);
         assert_eq!(all_four.len(), 4);
         assert_eq!(all_four[0].name(), "Claude Code");
-        assert_eq!(all_four[3].name(), "Gemini CLI");
+        assert_eq!(all_four[3].name(), "Gemini");
     }
 }
