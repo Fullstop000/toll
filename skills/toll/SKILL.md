@@ -1,19 +1,19 @@
 ---
 name: toll
 description: |
-  Use this skill when the user asks about token usage, API costs, spending, or session statistics for Claude Code or Codex CLI. This skill runs the `toll` CLI to aggregate token counts and estimated USD costs from local session logs stored in ~/.claude and ~/.codex. Activate when the user says things like "how many tokens have I used", "how much have I spent on Claude", "show my usage", "token stats", "daily usage breakdown", or "export my usage as CSV".
+  Use this skill when the user asks about token usage, API costs, spending, or session statistics for Claude Code, Codex CLI, Kimi Code, or Gemini CLI. This skill runs the `toll` CLI to aggregate token counts and estimated USD costs from local session logs stored in ~/.claude, ~/.codex, ~/.kimi, and ~/.gemini. Activate when the user says things like "how many tokens have I used", "how much have I spent on Claude", "show my usage", "token stats", "daily usage breakdown", or "export my usage as CSV".
 license: MIT
-compatibility: Requires the `toll` binary to be installed. Supports Linux and macOS (x86_64 and ARM64). Reads logs from ~/.claude/projects/**/*.jsonl (Claude Code) and ~/.codex/sessions/ (Codex CLI). No network access required at runtime.
+compatibility: Requires the `toll` binary to be installed. Supports Linux and macOS (x86_64 and ARM64). Reads logs from ~/.claude/projects/**/*.jsonl (Claude Code), ~/.codex/sessions/ (Codex CLI), ~/.kimi/sessions/ (Kimi Code), and ~/.gemini/tmp/ (Gemini CLI). No network access required at runtime.
 metadata:
   author: Fullstop000
-  version: 1.0.6
+  version: 1.0.7
   repository: https://github.com/Fullstop000/toll
   homepage: https://github.com/Fullstop000/toll
 ---
 
 # toll — Token Usage Tracker
 
-Track token consumption and estimated USD costs from **Claude Code** and **Codex CLI** sessions.
+Track token consumption and estimated USD costs from **Claude Code**, **Codex CLI**, **Kimi Code**, and **Gemini CLI** sessions.
 
 ## Installation
 
@@ -46,6 +46,9 @@ Map the user's intent to the appropriate `toll` invocation:
 | Daily breakdown for N days | `toll --by-day --days <N>` |
 | Claude Code only | `toll --claude` |
 | Codex CLI only | `toll --codex` |
+| Kimi Code only | `toll --kimi` |
+| Gemini CLI only | `toll --gemini` |
+| Combined filters | `toll --days <N> --by-day --detail --json` |
 | Full token counts (no abbreviation) | `toll --detail` |
 | JSON output | `toll --json` |
 | CSV export | `toll --csv` |
@@ -66,10 +69,3 @@ Explain these columns if the user is unfamiliar:
 - **Cost** — estimated USD cost based on per-model pricing (marked `*` when approximate)
 
 Token counts use compact notation: `1.2m` = 1,200,000 tokens, `45.6k` = 45,600 tokens.
-
-## Data Sources
-
-- **Claude Code**: `~/.claude/projects/**/*.jsonl`
-- **Codex CLI**: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
-
-Logs are read locally — no data leaves the machine.
