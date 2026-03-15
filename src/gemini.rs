@@ -196,7 +196,7 @@ mod tests {
     fn respects_since_filter() {
         let mut usage = TokenUsage::default();
         let since = "2026-03-15T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        
+
         let session = json!({
             "messages": [
                 {
