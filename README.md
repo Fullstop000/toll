@@ -131,7 +131,7 @@ Collected: 2026-03-13 20:20:38 +08:00
 | Claude Code | `~/.claude/projects/**/*.jsonl` | `message.usage` per API call — sums `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens` |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | last `token_count` event per session (cumulative totals) |
 | Kimi Code | `~/.kimi/sessions/**/<session>/wire.jsonl` | `StatusUpdate` events — sums `input_other`, `input_cache_read`, `input_cache_creation`, `output` per API call |
-| Gemini | `~/.gemini/tmp/**/chats/*.json` | `tokens` per agent message — sums `input`, `cached`, `output` per call |
+| Gemini | `~/.gemini/tmp/**/chats/*.json` | `tokens` per agent message — sums `input`, `cached`, `output` per call; totals can differ from Gemini CLI `/stats model` because Gemini CLI also counts internal utility-model requests, while `toll` reads only persisted chat turns |
 
 ## License
 
