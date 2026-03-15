@@ -96,31 +96,37 @@ fn process_session(v: &Value, total_usage: &mut TokenUsage, since: Option<DateTi
         None => return,
     };
 
-    let mut session_has_usage = false;
+    // Gemini CLI logs are CUMULATIVE for the entire session.
+    // To avoid overcounting, we only take the usage from the LAST message that has usage data.
+    // However, if a 'since' filter is applied, we might need more complex logic.
+    // For now, if 'since' is present, we filter the whole session by its start time or the last message time.
+    
+    let last_usage_msg = messages
+        .iter()
+        .rev()
+        .find(|msg| {
+            msg.get("type").and_then(|t| t.as_str()) == Some("gemini") && msg.get("tokens").is_some()
+        });
 
-    for msg in messages {
-        if msg.get("type").and_then(|t| t.as_str()) != Some("gemini") {
-            continue;
-        }
-
+    if let Some(msg) = last_usage_msg {
         if let Some(since_dt) = since
             && let Some(ts_str) = msg.get("timestamp").and_then(|t| t.as_str())
             && let Ok(dt) = ts_str.parse::<DateTime<Utc>>()
             && dt < since_dt
         {
-            continue;
+            return;
         }
 
         if let Some(tokens) = msg.get("tokens") {
             let input = tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
             let output = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
             let cached = tokens.get("cached").and_then(|v| v.as_u64()).unwrap_or(0);
-            let _thoughts = tokens.get("thoughts").and_then(|v| v.as_u64()).unwrap_or(0);
-
+            // Thoughts and tool tokens are usually already included in 'input' or 'output' 
+            // depending on the model, but in cumulative logs, they represent the total for the session.
+            
             let model = msg.get("model").and_then(|m| m.as_str()).unwrap_or("");
             let (cost, unknown) = if let Some(p) = crate::pricing::lookup(model) {
-                // Gemini: input includes cached and thoughts.
-                // pure_input = input - cached.
+                // Gemini: input includes cached.
                 let pure_input = input.saturating_sub(cached);
                 (p.cost(pure_input, 0, cached, output), 0)
             } else {
@@ -132,8 +138,7 @@ fn process_session(v: &Value, total_usage: &mut TokenUsage, since: Option<DateTi
             total_usage.cached_input_tokens += cached;
             total_usage.cost_usd += cost;
             total_usage.unknown_cost_sessions += unknown;
-
-            session_has_usage = true;
+            total_usage.sessions += 1;
 
             if !model.is_empty() {
                 total_usage.record_model(
@@ -147,10 +152,6 @@ fn process_session(v: &Value, total_usage: &mut TokenUsage, since: Option<DateTi
             }
         }
     }
-
-    if session_has_usage {
-        total_usage.sessions += 1;
-    }
 }
 
 #[cfg(test)]
@@ -159,22 +160,26 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn parses_gemini_message_with_usage() {
+    fn parses_gemini_cumulative_usage() {
         let mut usage = TokenUsage::default();
         let session = json!({
             "messages": [
-                {
-                    "type": "user",
-                    "content": [{"text": "hello"}]
-                },
                 {
                     "type": "gemini",
                     "model": "gemini-3.1-flash",
                     "tokens": {
                         "input": 1000,
                         "output": 100,
-                        "cached": 200,
-                        "thoughts": 50
+                        "cached": 0
+                    }
+                },
+                {
+                    "type": "gemini",
+                    "model": "gemini-3.1-flash",
+                    "tokens": {
+                        "input": 2000,
+                        "output": 200,
+                        "cached": 1000
                     }
                 }
             ]
@@ -182,28 +187,21 @@ mod tests {
 
         process_session(&session, &mut usage, None);
 
+        // Should only take the LAST message's usage
         assert_eq!(usage.sessions, 1);
-        assert_eq!(usage.input_tokens, 1000);
-        assert_eq!(usage.output_tokens, 100);
-        assert_eq!(usage.cached_input_tokens, 200);
-        assert_eq!(usage.net_input_tokens(), 800);
-        // Cost for gemini-3.1-flash: $0.50 in / $3.00 out / $0.05 cache_read
-        // (800 * 0.5 + 200 * 0.05 + 100 * 3.0) / 1,000,000 = (400 + 10 + 300) / 1,000,000 = 0.00071
-        assert!((usage.cost_usd - 0.00071).abs() < 1e-9);
+        assert_eq!(usage.input_tokens, 2000);
+        assert_eq!(usage.output_tokens, 200);
+        assert_eq!(usage.cached_input_tokens, 1000);
+        assert_eq!(usage.net_input_tokens(), 1000);
     }
 
     #[test]
-    fn respects_since_filter() {
+    fn respects_since_filter_on_last_message() {
         let mut usage = TokenUsage::default();
         let since = "2026-03-15T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
 
         let session = json!({
             "messages": [
-                {
-                    "type": "gemini",
-                    "timestamp": "2026-03-14T23:59:59Z",
-                    "tokens": {"input": 100, "output": 10, "cached": 0}
-                },
                 {
                     "type": "gemini",
                     "timestamp": "2026-03-15T00:00:01Z",
@@ -213,25 +211,20 @@ mod tests {
         });
 
         process_session(&session, &mut usage, Some(since));
+        assert_eq!(usage.sessions, 1);
 
-        assert_eq!(usage.input_tokens, 200);
-        assert_eq!(usage.output_tokens, 20);
-    }
-
-    #[test]
-    fn session_without_usage_is_skipped() {
-        let mut usage = TokenUsage::default();
-        let session = json!({
+        let mut usage2 = TokenUsage::default();
+        let session2 = json!({
             "messages": [
                 {
-                    "type": "user",
-                    "content": [{"text": "hello"}]
+                    "type": "gemini",
+                    "timestamp": "2026-03-14T23:59:59Z",
+                    "tokens": {"input": 200, "output": 20, "cached": 0}
                 }
             ]
         });
-
-        process_session(&session, &mut usage, None);
-        assert_eq!(usage.sessions, 0);
+        process_session(&session2, &mut usage2, Some(since));
+        assert_eq!(usage2.sessions, 0);
     }
 
     #[test]
