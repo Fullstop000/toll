@@ -287,6 +287,105 @@ static PRICING: &[(&str, ModelPricing)] = &[
             output_per_m: 2.50,
         },
     ),
+    // ── Google Gemini ────────────────────────────────────────────────────────
+    // Gemini 3.1 Pro  $2.00 in / $12.00 out  cache_read $0.20
+    (
+        "gemini-3.1-pro",
+        ModelPricing {
+            input_per_m: 2.00,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.20,
+            output_per_m: 12.0,
+        },
+    ),
+    (
+        "gemini-3-pro",
+        ModelPricing {
+            input_per_m: 2.00,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.20,
+            output_per_m: 12.0,
+        },
+    ),
+    // Gemini 3.1 Flash  $0.50 in / $3.00 out  cache_read $0.05
+    (
+        "gemini-3.1-flash",
+        ModelPricing {
+            input_per_m: 0.50,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.05,
+            output_per_m: 3.0,
+        },
+    ),
+    (
+        "gemini-3-flash",
+        ModelPricing {
+            input_per_m: 0.50,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.05,
+            output_per_m: 3.0,
+        },
+    ),
+    // Gemini 3.1 Flash-Lite  $0.25 in / $1.50 out  cache_read $0.025
+    (
+        "gemini-3.1-flash-lite",
+        ModelPricing {
+            input_per_m: 0.25,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.025,
+            output_per_m: 1.5,
+        },
+    ),
+    // Gemini 2.5 Pro  $1.25 in / $10.00 out  cache_read $0.125
+    (
+        "gemini-2.5-pro",
+        ModelPricing {
+            input_per_m: 1.25,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.125,
+            output_per_m: 10.0,
+        },
+    ),
+    // Gemini 2.5 Flash  $0.30 in / $2.50 out  cache_read $0.03
+    (
+        "gemini-2.5-flash",
+        ModelPricing {
+            input_per_m: 0.30,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.03,
+            output_per_m: 2.5,
+        },
+    ),
+    // Gemini 2.0 Flash  $0.10 in / $0.40 out  cache_read $0.01
+    (
+        "gemini-2.0-flash",
+        ModelPricing {
+            input_per_m: 0.10,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.01,
+            output_per_m: 0.40,
+        },
+    ),
+    // Gemini 1.5 Pro  $1.25 in / $5.00 out  cache_read $0.3125
+    (
+        "gemini-1.5-pro",
+        ModelPricing {
+            input_per_m: 1.25,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.3125,
+            output_per_m: 5.0,
+        },
+    ),
+    // Gemini 1.5 Flash  $0.075 in / $0.30 out  cache_read $0.01875
+    (
+        "gemini-1.5-flash",
+        ModelPricing {
+            input_per_m: 0.075,
+            cache_write_per_m: 0.0,
+            cache_read_per_m: 0.01875,
+            output_per_m: 0.30,
+        },
+    ),
 ];
 
 /// Print all known model prices as a formatted table.

@@ -2,6 +2,7 @@ mod agent;
 mod claude;
 mod codex;
 mod display;
+mod gemini;
 mod kimi;
 mod output;
 mod pricing;
@@ -15,6 +16,7 @@ use std::path::PathBuf;
 use claude::ClaudeAgent;
 use codex::CodexAgent;
 use display::{NumberFormat, print_daily_table, print_multi_table, print_single};
+use gemini::GeminiAgent;
 use kimi::KimiAgent;
 use output::{
     OutputFilters, OutputMode, render_daily_csv, render_daily_json, render_summary_csv,
@@ -26,7 +28,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
 #[derive(Parser)]
 #[command(
     name = "toll",
-    about = "Token usage statistics for Claude Code, Codex CLI, and Kimi Code"
+    about = "Token usage statistics for Claude Code, Codex CLI, Kimi Code, and Gemini CLI"
 )]
 #[command(after_help = "Examples:
   toll              # all-time stats
@@ -36,6 +38,7 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
+  toll --gemini     # Gemini CLI only
   toll --detail     # full token counts")]
 struct Args {
     #[arg(
@@ -59,6 +62,9 @@ struct Args {
 
     #[arg(long, help = "Show Kimi Code stats only")]
     kimi: bool,
+
+    #[arg(long, help = "Show Gemini CLI stats only")]
+    gemini: bool,
 
     #[arg(long, help = "List all supported models and their prices, then exit")]
     list_prices: bool,
@@ -211,19 +217,22 @@ fn main() {
         NumberFormat::Compact
     };
 
-    let show_all = !args.claude && !args.codex && !args.kimi;
+    let show_all = !args.claude && !args.codex && !args.kimi && !args.gemini;
     let show_claude = show_all || args.claude;
     let show_codex = show_all || args.codex;
     let show_kimi = show_all || args.kimi;
+    let show_gemini = show_all || args.gemini;
 
     let home = home_dir();
     let claude_agent = ClaudeAgent::new();
     let codex_agent = CodexAgent::new();
     let kimi_agent = KimiAgent::new();
+    let gemini_agent = GeminiAgent::new();
     let agents: Vec<&dyn Agent> = [
         (show_claude, &claude_agent as &dyn Agent),
         (show_codex, &codex_agent as &dyn Agent),
         (show_kimi, &kimi_agent as &dyn Agent),
+        (show_gemini, &gemini_agent as &dyn Agent),
     ]
     .into_iter()
     .filter_map(|(show, a)| show.then_some(a))
@@ -234,6 +243,7 @@ fn main() {
         claude: args.claude,
         codex: args.codex,
         kimi: args.kimi,
+        gemini: args.gemini,
         by_day: args.by_day,
         detail: args.detail,
     };
@@ -378,11 +388,13 @@ mod tests {
         let claude = claude::ClaudeAgent::new();
         let codex = codex::CodexAgent::new();
         let kimi = kimi::KimiAgent::new();
-        let agents: [&dyn agent::Agent; 3] = [&claude, &codex, &kimi];
+        let gemini = gemini::GeminiAgent::new();
+        let agents: [&dyn agent::Agent; 4] = [&claude, &codex, &kimi, &gemini];
 
         assert_eq!(agents[0].name(), "Claude Code");
         assert_eq!(agents[1].name(), "Codex");
         assert_eq!(agents[2].name(), "Kimi Code");
+        assert_eq!(agents[3].name(), "Gemini CLI");
         assert_eq!(
             agents[0].data_dir(Path::new("/tmp")),
             PathBuf::from("/tmp/.claude/projects")
@@ -395,6 +407,10 @@ mod tests {
             agents[2].data_dir(Path::new("/tmp")),
             PathBuf::from("/tmp/.kimi/sessions")
         );
+        assert_eq!(
+            agents[3].data_dir(Path::new("/tmp")),
+            PathBuf::from("/tmp/.gemini/tmp")
+        );
     }
 
     #[test]
@@ -402,10 +418,11 @@ mod tests {
         let claude = claude::ClaudeAgent::new();
         let codex = codex::CodexAgent::new();
         let kimi = kimi::KimiAgent::new();
+        let gemini = gemini::GeminiAgent::new();
 
         fn filter<'a>(
-            flags: [bool; 3],
-            agents: [&'a dyn agent::Agent; 3],
+            flags: [bool; 4],
+            agents: [&'a dyn agent::Agent; 4],
         ) -> Vec<&'a dyn agent::Agent> {
             flags
                 .into_iter()
@@ -414,24 +431,19 @@ mod tests {
                 .collect()
         }
 
-        let all: [&dyn agent::Agent; 3] = [&claude, &codex, &kimi];
+        let all: [&dyn agent::Agent; 4] = [&claude, &codex, &kimi, &gemini];
 
-        let claude_only = filter([true, false, false], all);
+        let claude_only = filter([true, false, false, false], all);
         assert_eq!(claude_only.len(), 1);
         assert_eq!(claude_only[0].name(), "Claude Code");
 
-        let codex_only = filter([false, true, false], all);
-        assert_eq!(codex_only.len(), 1);
-        assert_eq!(codex_only[0].name(), "Codex");
+        let gemini_only = filter([false, false, false, true], all);
+        assert_eq!(gemini_only.len(), 1);
+        assert_eq!(gemini_only[0].name(), "Gemini CLI");
 
-        let kimi_only = filter([false, false, true], all);
-        assert_eq!(kimi_only.len(), 1);
-        assert_eq!(kimi_only[0].name(), "Kimi Code");
-
-        let all_three = filter([true, true, true], all);
-        assert_eq!(all_three.len(), 3);
-        assert_eq!(all_three[0].name(), "Claude Code");
-        assert_eq!(all_three[1].name(), "Codex");
-        assert_eq!(all_three[2].name(), "Kimi Code");
+        let all_four = filter([true, true, true, true], all);
+        assert_eq!(all_four.len(), 4);
+        assert_eq!(all_four[0].name(), "Claude Code");
+        assert_eq!(all_four[3].name(), "Gemini CLI");
     }
 }

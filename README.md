@@ -2,13 +2,13 @@
 
 [![crates.io](https://img.shields.io/crates/v/toll.svg)](https://crates.io/crates/toll)
 
-Token usage statistics for CLI coding agents — Claude Code, Codex CLI, and Kimi Code.
+Token usage statistics for CLI coding agents — Claude Code, Codex CLI, Kimi Code, and Gemini CLI.
 
 The name is a double metaphor: tokens are the *toll* you pay to use AI coding agents, and heavy usage *takes a toll*.
 
 ## Features
 
-- Tracks token usage from **Claude Code** (`~/.claude/projects/`), **Codex CLI** (`~/.codex/sessions/`), and **Kimi Code** (`~/.kimi/sessions/`)
+- Tracks token usage from **Claude Code** (`~/.claude/projects/`), **Codex CLI** (`~/.codex/sessions/`), **Kimi Code** (`~/.kimi/sessions/`), and **Gemini CLI** (`~/.gemini/tmp/`)
 - Shows input, output, cached tokens, cache hit rate, and estimated USD cost
 - Uses compact `k` / `m` / `b` token units by default, with `--detail` for raw counts
 - Per-model breakdown across all sessions
@@ -23,6 +23,7 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 | [Claude Code](https://github.com/anthropics/claude-code) | All versions (JSONL logs present since launch) | `message.usage` entries in `~/.claude/projects/**/*.jsonl` |
 | [Codex CLI](https://github.com/openai/codex) | ≥ 0.1 (rollout log format) | `token_count` events in `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 | [Kimi Code](https://www.kimi.com/code) | All versions | `StatusUpdate` token_usage events in `~/.kimi/sessions/**/<session>/wire.jsonl` |
+| [Gemini CLI](https://github.com/google/gemini-cli) | ≥ 0.5 (antigravity log format) | `tokens` entries in `~/.gemini/tmp/**/chats/*.json` |
 
 ## Installation
 
@@ -59,7 +60,7 @@ cargo install --path .
 ## Usage
 
 ```text
-Token usage statistics for Claude Code, Codex CLI, and Kimi Code
+Token usage statistics for Claude Code, Codex CLI, Kimi Code, and Gemini CLI
 
 Usage: toll [OPTIONS]
 
@@ -70,6 +71,7 @@ Options:
       --claude       Show Claude stats only
       --codex        Show Codex stats only
       --kimi         Show Kimi Code stats only
+      --gemini       Show Gemini CLI stats only
       --json         Emit JSON to stdout
       --csv          Emit CSV to stdout
       --list-prices  List all supported models and their prices, then exit
@@ -85,6 +87,7 @@ Examples:
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
+  toll --gemini     # Gemini CLI only
   toll --detail     # full token counts
   toll --json       # machine-readable JSON
   toll --csv        # terminal CSV export
@@ -101,8 +104,9 @@ Collected: 2026-03-13 20:20:38 +08:00
   Claude Code       38  316.1m  304.2m     96.2%      11.9m    1.3m  317.5m  $168.59
   Codex             21  148.9m  137.4m     92.3%      11.5m  777.8k  149.7m   $74.70
   Kimi Code         15   34.6m   32.4m     93.6%       2.2m  206.2k   34.8m    $6.70
+  Gemini CLI        10   28.5m   25.8m     90.5%       2.7m  185.5k   28.7m    $2.15
   ────────────────────────────────────────────────────────────────────────────────────
-  Combined          74  499.6m  474.0m     94.9%      25.6m    2.3m  501.9m  $249.99
+  Combined         114  528.1m  499.8m     94.6%      28.3m    2.5m  530.6m  $252.14
   ────────────────────────────────────────────────────────────────────────────────────
 
   By model:
@@ -112,11 +116,12 @@ Collected: 2026-03-13 20:20:38 +08:00
   claude-haiku-4-5-20251001               9.4m            40.5k            $2.71
   claude-opus-4-6                        49.7m           317.2k           $45.17
   claude-sonnet-4-6                     258.3m           988.2k          $120.72
+  gemini-3-flash-preview                 28.7m           185.5k            $2.15
   gpt-5.4                               149.7m           777.8k           $74.70
   kimi-for-coding                        34.8m           206.2k            $6.70
   ─────────────────────────────────────────────────────────────────────────────────
 
-  Scanned 74 session(s) in 1.36s
+  Scanned 114 session(s) in 1.42s
 ```
 
 ## Data sources
@@ -126,6 +131,7 @@ Collected: 2026-03-13 20:20:38 +08:00
 | Claude Code | `~/.claude/projects/**/*.jsonl` | `message.usage` per API call — sums `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens` |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | last `token_count` event per session (cumulative totals) |
 | Kimi Code | `~/.kimi/sessions/**/<session>/wire.jsonl` | `StatusUpdate` events — sums `input_other`, `input_cache_read`, `input_cache_creation`, `output` per API call |
+| Gemini CLI | `~/.gemini/tmp/**/chats/*.json` | `tokens` per agent message — sums `input`, `cached`, `output` per call |
 
 ## License
 

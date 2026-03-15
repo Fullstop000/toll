@@ -20,6 +20,7 @@ pub struct OutputFilters {
     pub claude: bool,
     pub codex: bool,
     pub kimi: bool,
+    pub gemini: bool,
     pub by_day: bool,
     pub detail: bool,
 }
@@ -386,6 +387,7 @@ mod tests {
                 claude: false,
                 codex: false,
                 kimi: false,
+                gemini: false,
                 by_day: false,
                 detail: false,
             },
