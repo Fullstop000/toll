@@ -76,7 +76,7 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
                     .and_then(|m| m.get("timestamp"))
                     .and_then(|t| t.as_str())
             });
-        if let Some(ts) = ts_str
+            if let Some(ts) = ts_str
                 && let Ok(dt) = ts.parse::<DateTime<Utc>>()
                 && dt < since_dt
             {

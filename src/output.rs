@@ -210,9 +210,8 @@ pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
 
 /// Render daily CSV for the current aggregated daily view.
 pub fn render_daily_csv(by_day: &DailyUsage, format: NumberFormat) -> String {
-    let mut lines = vec![
-        "Date,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string(),
-    ];
+    let mut lines =
+        vec!["Date,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string()];
 
     for (date, usage) in by_day.iter().rev() {
         let values = [
