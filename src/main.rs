@@ -420,10 +420,7 @@ mod tests {
         let kimi = kimi::KimiAgent::new();
         let gemini = gemini::GeminiAgent::new();
 
-        fn filter<'a>(
-            flags: [bool; 4],
-            agents: [&'a dyn agent::Agent; 4],
-        ) -> Vec<&'a dyn agent::Agent> {
+        fn filter(flags: [bool; 4], agents: [&dyn agent::Agent; 4]) -> Vec<&dyn agent::Agent> {
             flags
                 .into_iter()
                 .zip(agents)

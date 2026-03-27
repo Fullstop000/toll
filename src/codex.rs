@@ -44,7 +44,9 @@ impl Agent for CodexAgent {
 
 /// Fast-path filter for Codex lines worth deserializing.
 fn codex_line_is_relevant(line: &str) -> bool {
-    line.contains(r#""type":"turn_context""#) || line.contains(r#""type":"token_count""#)
+    line.contains(r#""type":"turn_context""#)
+        || line.contains(r#""type":"token_count""#)
+        || line.contains(r#""type":"task_started""#)
 }
 
 /// Parse Codex session lines from any BufRead source.
@@ -54,6 +56,7 @@ fn codex_line_is_relevant(line: &str) -> bool {
 pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
     let mut model: Option<String> = None;
     let mut last_total: Option<Value> = None;
+    let mut user_queries = 0u32;
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim();
@@ -83,6 +86,9 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
                 let Some(payload) = v.get("payload") else {
                     continue;
                 };
+                if payload.get("type").and_then(|t| t.as_str()) == Some("task_started") {
+                    user_queries += 1;
+                }
                 if payload.get("type").and_then(|t| t.as_str()) == Some("token_count")
                     && let Some(total) =
                         payload.get("info").and_then(|i| i.get("total_token_usage"))
@@ -122,6 +128,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         cache_write_tokens: 0,
         output_tokens,
         sessions: 1,
+        user_queries,
         cost_usd,
         unknown_cost_sessions,
         ..Default::default()
@@ -294,6 +301,17 @@ mod tests {
         .to_string()
     }
 
+    fn task_started_line(turn_id: &str) -> String {
+        serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "task_started",
+                "turn_id": turn_id
+            }
+        })
+        .to_string()
+    }
+
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -305,7 +323,8 @@ mod tests {
     #[test]
     fn parses_last_token_count() {
         let data = format!(
-            "{}\n{}\n{}\n",
+            "{}\n{}\n{}\n{}\n",
+            task_started_line("turn-1"),
             turn_context_line("gpt-4o"),
             token_count_line(100, 80, 10),
             token_count_line(200, 150, 25),
@@ -315,6 +334,22 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, 150);
         assert_eq!(usage.output_tokens, 25);
         assert_eq!(usage.sessions, 1);
+        assert_eq!(usage.user_queries, 1);
+    }
+
+    #[test]
+    fn counts_task_started_events_as_user_queries() {
+        let data = format!(
+            "{}\n{}\n{}\n{}\n{}\n",
+            task_started_line("turn-1"),
+            turn_context_line("gpt-5.4"),
+            token_count_line(100, 80, 10),
+            task_started_line("turn-2"),
+            token_count_line(200, 150, 25),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert_eq!(usage.user_queries, 2);
+        assert_eq!(usage.total_tokens(), 225);
     }
 
     #[test]

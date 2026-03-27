@@ -92,6 +92,13 @@ fn status_update_tokens(v: &Value, since: Option<DateTime<Utc>>) -> Option<&Valu
     msg.get("payload")?.get("token_usage")
 }
 
+fn is_turn_begin(v: &Value) -> bool {
+    v.get("message")
+        .and_then(|m| m.get("type"))
+        .and_then(|t| t.as_str())
+        == Some("TurnBegin")
+}
+
 /// Parse Kimi Code usage entries from any `BufRead` source.
 ///
 /// Kimi Code logs token usage in `StatusUpdate` messages:
@@ -109,12 +116,24 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
-        if line.is_empty() || !line.contains("StatusUpdate") {
+        if line.is_empty() {
             continue;
         }
         let Ok(v): Result<Value, _> = serde_json::from_str(&line) else {
             continue;
         };
+        if is_turn_begin(&v) {
+            if let Some(since_dt) = since {
+                let Some(dt) = v.get("timestamp").and_then(parse_unix_ts) else {
+                    continue;
+                };
+                if dt < since_dt {
+                    continue;
+                }
+            }
+            usage.user_queries += 1;
+            continue;
+        }
         let Some(tu) = status_update_tokens(&v, since) else {
             continue;
         };
@@ -152,7 +171,7 @@ pub fn parse_kimi_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
-        if line.is_empty() || !line.contains("StatusUpdate") {
+        if line.is_empty() {
             continue;
         }
         let Ok(v): Result<Value, _> = serde_json::from_str(&line) else {
@@ -161,15 +180,27 @@ pub fn parse_kimi_lines_by_day(reader: impl BufRead, since: Option<DateTime<Utc>
 
         // Need the timestamp for bucketing — extract before the since filter strips it.
         let msg = v.get("message");
-        if msg.and_then(|m| m.get("type")).and_then(|t| t.as_str()) != Some("StatusUpdate") {
-            continue;
-        }
         let Some(dt) = v.get("timestamp").and_then(parse_unix_ts) else {
             continue;
         };
         if let Some(since_dt) = since
             && dt < since_dt
         {
+            continue;
+        }
+        if is_turn_begin(&v) {
+            let date: NaiveDate = dt.with_timezone(&Local).date_naive();
+            add_daily_usage(
+                &mut by_day,
+                date,
+                &TokenUsage {
+                    user_queries: 1,
+                    ..Default::default()
+                },
+            );
+            continue;
+        }
+        if msg.and_then(|m| m.get("type")).and_then(|t| t.as_str()) != Some("StatusUpdate") {
             continue;
         }
         let Some(tu) = msg
@@ -223,7 +254,7 @@ pub fn collect_kimi_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> 
             continue;
         };
         let usage = parse_kimi_lines(BufReader::new(file), since);
-        if usage.total_tokens() > 0 {
+        if usage.total_tokens() > 0 || usage.user_queries > 0 {
             total.add(&usage);
         }
     }
@@ -285,11 +316,25 @@ mod tests {
         .to_string()
     }
 
+    fn turn_begin_line(ts: f64, text: &str) -> String {
+        serde_json::json!({
+            "timestamp": ts,
+            "message": {
+                "type": "TurnBegin",
+                "payload": {
+                    "user_input": [{"type": "text", "text": text}]
+                }
+            }
+        })
+        .to_string()
+    }
+
     #[test]
     fn sums_all_status_updates() {
         // Two calls in one session
         let data = format!(
-            "{}\n{}\n",
+            "{}\n{}\n{}\n",
+            turn_begin_line(1_772_971_392.0, "first prompt"),
             make_line(1_772_971_394.0, 2492, 5376, 0, 63),
             make_line(1_772_971_405.0, 901, 7680, 0, 60),
         );
@@ -299,6 +344,21 @@ mod tests {
         assert_eq!(usage.cache_write_tokens, 0);
         assert_eq!(usage.output_tokens, 63 + 60);
         assert_eq!(usage.sessions, 1);
+        assert_eq!(usage.user_queries, 1);
+    }
+
+    #[test]
+    fn counts_turn_begin_events_as_user_queries() {
+        let data = format!(
+            "{}\n{}\n{}\n{}\n",
+            turn_begin_line(1_772_971_392.0, "first prompt"),
+            make_line(1_772_971_394.0, 100, 0, 0, 10),
+            make_line(1_772_971_405.0, 200, 0, 0, 20),
+            turn_begin_line(1_772_971_500.0, "follow-up"),
+        );
+        let usage = parse_kimi_lines(cursor(&data), None);
+        assert_eq!(usage.user_queries, 2);
+        assert_eq!(usage.output_tokens, 30);
     }
 
     #[test]

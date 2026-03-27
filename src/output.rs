@@ -74,6 +74,7 @@ pub struct JsonUsageRecord {
     pub output_tokens: u64,
     pub total_tokens: u64,
     pub sessions: u32,
+    pub user_queries: u32,
     pub cost_usd: f64,
     pub unknown_cost_sessions: u32,
 }
@@ -102,6 +103,7 @@ fn json_usage_record(usage: &TokenUsage) -> JsonUsageRecord {
         output_tokens: usage.output_tokens,
         total_tokens: usage.total_tokens(),
         sessions: usage.sessions,
+        user_queries: usage.user_queries,
         cost_usd: usage.cost_usd,
         unknown_cost_sessions: usage.unknown_cost_sessions,
     }
@@ -144,6 +146,7 @@ fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> Stri
     let values = [
         name.to_string(),
         usage.sessions.to_string(),
+        usage.user_queries.to_string(),
         fmt_num_with_format(usage.input_tokens, format),
         fmt_num_with_format(usage.cached_input_tokens, format),
         fmt_pct(usage.cached_input_tokens, usage.input_tokens)
@@ -180,8 +183,9 @@ fn csv_model_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String
 
 /// Render summary CSV for the currently selected agents.
 pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
-    let mut lines =
-        vec!["Agent,Sessions,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string()];
+    let mut lines = vec![
+        "Agent,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string(),
+    ];
 
     for (name, usage) in usages {
         lines.push(csv_summary_row(name, usage, format));
@@ -207,12 +211,13 @@ pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
 /// Render daily CSV for the current aggregated daily view.
 pub fn render_daily_csv(by_day: &DailyUsage, format: NumberFormat) -> String {
     let mut lines =
-        vec!["Date,Sessions,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string()];
+        vec!["Date,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string()];
 
     for (date, usage) in by_day.iter().rev() {
         let values = [
             date.format("%Y-%m-%d").to_string(),
             usage.sessions.to_string(),
+            usage.user_queries.to_string(),
             fmt_num_with_format(usage.input_tokens, format),
             fmt_num_with_format(usage.cached_input_tokens, format),
             fmt_pct(usage.cached_input_tokens, usage.input_tokens)
@@ -316,6 +321,7 @@ mod tests {
             cached_input_tokens: 2_500,
             output_tokens: 500,
             sessions: 2,
+            user_queries: 7,
             cost_usd: 1.25,
             ..Default::default()
         };
@@ -323,8 +329,8 @@ mod tests {
 
         let rendered = render_summary_csv(&[("Codex", &usage)], NumberFormat::Compact);
 
-        assert!(rendered.starts_with("Agent,Sessions,Input,Cached,Hit Rate"));
-        assert!(rendered.contains("Codex,2,12.5k,2.5k,20.0%,10.0k,500,13.0k,$1.25"));
+        assert!(rendered.starts_with("Agent,Sessions,Queries,Input,Cached,Hit Rate"));
+        assert!(rendered.contains("Codex,2,7,12.5k,2.5k,20.0%,10.0k,500,13.0k,$1.25"));
         assert!(rendered.contains("\n\nModel,Tokens,Output,Cost\n"));
         assert!(rendered.contains("gpt-5.4,13.0k,500,$1.25"));
     }
@@ -336,6 +342,7 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 3, 12).expect("valid date"),
             TokenUsage {
                 sessions: 1,
+                user_queries: 3,
                 input_tokens: 1_000,
                 ..Default::default()
             },
@@ -344,6 +351,7 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 3, 13).expect("valid date"),
             TokenUsage {
                 sessions: 2,
+                user_queries: 5,
                 input_tokens: 2_000,
                 cached_input_tokens: 500,
                 ..Default::default()
@@ -358,7 +366,7 @@ mod tests {
             .find("2026-03-12")
             .expect("older date should appear");
         assert!(latest < older);
-        assert!(rendered.contains("Date,Sessions,Input,Cached,Hit Rate"));
+        assert!(rendered.contains("Date,Sessions,Queries,Input,Cached,Hit Rate"));
     }
 
     #[test]
@@ -367,6 +375,7 @@ mod tests {
             input_tokens: 100,
             output_tokens: 10,
             sessions: 1,
+            user_queries: 4,
             cost_usd: 1.0,
             ..Default::default()
         };
@@ -374,6 +383,7 @@ mod tests {
             input_tokens: 200,
             output_tokens: 20,
             sessions: 2,
+            user_queries: 6,
             cost_usd: 2.0,
             ..Default::default()
         };
@@ -400,5 +410,6 @@ mod tests {
         assert!(rendered.contains("\"type\": \"summary\""));
         assert!(rendered.contains("\"combined\""));
         assert!(rendered.contains("\"total_tokens\": 330"));
+        assert!(rendered.contains("\"user_queries\": 10"));
     }
 }

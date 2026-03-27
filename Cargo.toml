@@ -1,8 +1,8 @@
 [package]
 name = "toll"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2024"
-description = "Token usage statistics for Claude Code, Codex CLI, Kimi Code, and Gemini"
+description = "Token and usage statistics for local AI agents"
 license = "MIT"
 repository = "https://github.com/Fullstop000/toll"
 keywords = ["tokens", "claude", "codex"]

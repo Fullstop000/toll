@@ -12,6 +12,7 @@ pub struct TokenUsage {
     pub cache_write_tokens: u64,
     pub output_tokens: u64,
     pub sessions: u32,
+    pub user_queries: u32,
     /// Estimated cost in USD (0.0 if unknown)
     pub cost_usd: f64,
     /// Sessions whose model pricing was not found
@@ -37,6 +38,7 @@ impl TokenUsage {
         self.cache_write_tokens += other.cache_write_tokens;
         self.output_tokens += other.output_tokens;
         self.sessions += other.sessions;
+        self.user_queries += other.user_queries;
         self.cost_usd += other.cost_usd;
         self.unknown_cost_sessions += other.unknown_cost_sessions;
         for (model, usage) in &other.by_model {
@@ -95,6 +97,7 @@ mod tests {
             cache_write_tokens: 10,
             output_tokens: 20,
             sessions: 1,
+            user_queries: 2,
             cost_usd: 1.5,
             unknown_cost_sessions: 0,
             ..Default::default()
@@ -105,6 +108,7 @@ mod tests {
             cache_write_tokens: 5,
             output_tokens: 5,
             sessions: 1,
+            user_queries: 1,
             cost_usd: 0.5,
             unknown_cost_sessions: 1,
             ..Default::default()
@@ -115,6 +119,7 @@ mod tests {
         assert_eq!(a.cache_write_tokens, 15);
         assert_eq!(a.output_tokens, 25);
         assert_eq!(a.sessions, 2);
+        assert_eq!(a.user_queries, 3);
         assert!((a.cost_usd - 2.0).abs() < 1e-9);
         assert_eq!(a.unknown_cost_sessions, 1);
     }
