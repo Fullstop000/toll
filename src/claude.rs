@@ -10,6 +10,16 @@ use walkdir::WalkDir;
 use crate::pricing;
 use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
 
+fn is_top_level_user_query(v: &Value) -> bool {
+    v.get("type").and_then(|t| t.as_str()) == Some("user")
+        && v.get("message")
+            .and_then(|m| m.get("role"))
+            .and_then(|r| r.as_str())
+            == Some("user")
+        && !v.get("isMeta").and_then(|m| m.as_bool()).unwrap_or(false)
+        && v.get("sourceToolAssistantUUID").is_none()
+}
+
 /// Claude Code usage collector.
 pub struct ClaudeAgent;
 
@@ -66,12 +76,17 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
                     .and_then(|m| m.get("timestamp"))
                     .and_then(|t| t.as_str())
             });
-            if let Some(ts) = ts_str
+        if let Some(ts) = ts_str
                 && let Ok(dt) = ts.parse::<DateTime<Utc>>()
                 && dt < since_dt
             {
                 continue;
             }
+        }
+
+        if is_top_level_user_query(&v) {
+            usage.user_queries += 1;
+            continue;
         }
 
         let Some(msg) = v.get("message") else {
@@ -141,6 +156,19 @@ pub fn parse_claude_lines_by_day(reader: impl BufRead, since: Option<DateTime<Ut
         if let Some(since_dt) = since
             && dt < since_dt
         {
+            continue;
+        }
+
+        if is_top_level_user_query(&v) {
+            let date: NaiveDate = dt.with_timezone(&Local).date_naive();
+            add_daily_usage(
+                &mut by_day,
+                date,
+                &TokenUsage {
+                    user_queries: 1,
+                    ..Default::default()
+                },
+            );
             continue;
         }
 
@@ -221,7 +249,7 @@ pub fn collect_claude_usage(projects_dir: &Path, since: Option<DateTime<Utc>>) -
         })
     {
         let usage = parse_claude_session(entry.path(), since);
-        if usage.total_tokens() > 0 {
+        if usage.total_tokens() > 0 || usage.user_queries > 0 {
             total.add(&usage);
         }
     }
@@ -300,6 +328,18 @@ mod tests {
         .to_string()
     }
 
+    fn user_line(ts: &str, content: &str) -> String {
+        serde_json::json!({
+            "timestamp": ts,
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": content
+            }
+        })
+        .to_string()
+    }
+
     #[test]
     fn sums_all_messages() {
         let data = format!(
@@ -320,6 +360,27 @@ mod tests {
         assert_eq!(usage.cache_write_tokens, 70); // 50 + 20
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.sessions, 1);
+    }
+
+    #[test]
+    fn counts_top_level_user_queries_once_per_user_message() {
+        let data = format!(
+            "{}\n{}\n{}\n{}\n",
+            user_line("2026-03-09T00:59:59Z", "first prompt"),
+            make_line(
+                "2026-03-09T01:00:00Z",
+                "claude-sonnet-4-6",
+                100,
+                50,
+                200,
+                30
+            ),
+            make_line("2026-03-09T01:00:30Z", "claude-sonnet-4-6", 80, 20, 100, 15),
+            user_line("2026-03-09T02:00:00Z", "follow-up"),
+        );
+        let usage = parse_claude_lines(cursor(&data), None);
+        assert_eq!(usage.user_queries, 2);
+        assert_eq!(usage.output_tokens, 45);
     }
 
     #[test]

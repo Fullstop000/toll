@@ -53,7 +53,7 @@ fn collect_gemini_usage(data_dir: &Path, since: Option<DateTime<Utc>>) -> TokenU
             && let Ok(v) = serde_json::from_str::<Value>(&content)
         {
             let session_usage = parse_gemini_session(&v, since);
-            if session_usage.total_tokens() > 0 {
+            if session_usage.total_tokens() > 0 || session_usage.user_queries > 0 {
                 total_usage.add(&session_usage);
             }
         }
@@ -108,6 +108,16 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
     let mut has_unknown_model = false;
 
     for msg in messages {
+        if msg.get("type").and_then(|t| t.as_str()) == Some("user") {
+            if let Some(since_dt) = since
+                && let Some(dt) = parse_timestamp(msg, session_start)
+                && dt < since_dt
+            {
+                continue;
+            }
+            usage.user_queries += 1;
+            continue;
+        }
         if msg.get("type").and_then(|t| t.as_str()) != Some("gemini") {
             continue;
         }
@@ -146,7 +156,7 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
         }
     }
 
-    if usage.total_tokens() > 0 {
+    if usage.total_tokens() > 0 || usage.user_queries > 0 {
         usage.sessions = 1;
         if has_unknown_model {
             usage.unknown_cost_sessions = 1;
@@ -171,6 +181,26 @@ fn parse_gemini_session_by_day(v: &Value, since: Option<DateTime<Utc>>) -> Daily
     let mut unknown_cost_days = HashSet::new();
 
     for msg in messages {
+        if msg.get("type").and_then(|t| t.as_str()) == Some("user") {
+            let Some(dt) = parse_timestamp(msg, session_start) else {
+                continue;
+            };
+            if let Some(since_dt) = since
+                && dt < since_dt
+            {
+                continue;
+            }
+            let date: NaiveDate = dt.with_timezone(&Local).date_naive();
+            add_daily_usage(
+                &mut by_day,
+                date,
+                &TokenUsage {
+                    user_queries: 1,
+                    ..Default::default()
+                },
+            );
+            continue;
+        }
         if msg.get("type").and_then(|t| t.as_str()) != Some("gemini") {
             continue;
         }
@@ -231,6 +261,11 @@ mod tests {
             "startTime": "2026-03-15T00:00:00Z",
             "messages": [
                 {
+                    "type": "user",
+                    "timestamp": "2026-03-15T00:00:00Z",
+                    "content": [{"text": "first prompt"}]
+                },
+                {
                     "type": "gemini",
                     "timestamp": "2026-03-15T00:00:01Z",
                     "model": "gemini-3.1-flash",
@@ -239,6 +274,11 @@ mod tests {
                         "output": 100,
                         "cached": 0
                     }
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-03-15T00:00:30Z",
+                    "content": [{"text": "follow-up"}]
                 },
                 {
                     "type": "gemini",
@@ -260,6 +300,7 @@ mod tests {
         assert_eq!(usage.output_tokens, 300);
         assert_eq!(usage.cached_input_tokens, 1000);
         assert_eq!(usage.net_input_tokens(), 2000);
+        assert_eq!(usage.user_queries, 2);
     }
 
     #[test]

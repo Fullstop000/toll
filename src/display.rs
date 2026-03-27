@@ -10,8 +10,9 @@ pub enum NumberFormat {
 }
 
 /// Summary headers used by multi-agent tables.
-const MULTI_SUMMARY_HEADERS: [&str; 8] = [
+const MULTI_SUMMARY_HEADERS: [&str; 9] = [
     "Sessions",
+    "Queries",
     "Input",
     "Cached",
     "Hit Rate",
@@ -91,9 +92,10 @@ fn fmt_cached_tokens(cached: u64, format: NumberFormat) -> String {
 }
 
 /// Render all summary cells for one usage snapshot.
-fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 8] {
+fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 9] {
     [
         fmt_num(usage.sessions as u64),
+        fmt_num(usage.user_queries as u64),
         fmt_num_with_format(usage.input_tokens, format),
         fmt_cached_tokens(usage.cached_input_tokens, format),
         fmt_pct(usage.cached_input_tokens, usage.input_tokens),
@@ -164,13 +166,14 @@ pub fn render_single_table(label: &str, usage: &TokenUsage, format: NumberFormat
     let values = summary_values(usage, format);
     let rows = [
         ("Sessions", values[0].as_str()),
-        ("Input tokens", values[1].as_str()),
-        ("  ↳ cached", values[2].as_str()),
-        ("  ↳ hit rate", values[3].as_str()),
-        ("  ↳ net (non-cached)", values[4].as_str()),
-        ("Output tokens", values[5].as_str()),
-        ("Total tokens", values[6].as_str()),
-        ("Estimated cost (USD)", values[7].as_str()),
+        ("User queries", values[1].as_str()),
+        ("Input tokens", values[2].as_str()),
+        ("  ↳ cached", values[3].as_str()),
+        ("  ↳ hit rate", values[4].as_str()),
+        ("  ↳ net (non-cached)", values[5].as_str()),
+        ("Output tokens", values[6].as_str()),
+        ("Total tokens", values[7].as_str()),
+        ("Estimated cost (USD)", values[8].as_str()),
     ];
     let label_w = rows
         .iter()
@@ -200,7 +203,7 @@ pub fn render_single_table(label: &str, usage: &TokenUsage, format: NumberFormat
             lw = label_w,
             cw = col_w
         ));
-        if matches!(idx, 0 | 4 | 6) {
+        if matches!(idx, 1 | 5 | 7) {
             out.push_str(&format!("  {}\n", "─".repeat(total_w)));
         }
     }
@@ -225,7 +228,7 @@ pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
 /// Render the summary table for any number of agents plus the combined total.
 pub fn render_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
     let combined = combined_usage(usages);
-    let mut rows: Vec<(&str, [String; 8])> = usages
+    let mut rows: Vec<(&str, [String; 9])> = usages
         .iter()
         .map(|(name, usage)| (*name, summary_values(usage, format)))
         .collect();
@@ -305,6 +308,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
     let headers = [
         "Date",
         "Sessions",
+        "Queries",
         "Input",
         "Cached",
         "Net Input",
@@ -313,13 +317,14 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         "Cost",
     ];
 
-    let rows: Vec<[String; 8]> = by_day
+    let rows: Vec<[String; 9]> = by_day
         .iter()
         .rev()
         .map(|(date, usage)| {
             [
                 date.format("%Y-%m-%d").to_string(),
                 fmt_num(usage.sessions as u64),
+                fmt_num(usage.user_queries as u64),
                 fmt_num_with_format(usage.input_tokens, format),
                 fmt_num_with_format(usage.cached_input_tokens, format),
                 fmt_num_with_format(usage.net_input_tokens(), format),
@@ -338,7 +343,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
     }
 
     out.push_str(&format!(
-        "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}\n",
+        "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}\n",
         headers[0],
         headers[1],
         headers[2],
@@ -347,6 +352,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         headers[5],
         headers[6],
         headers[7],
+        headers[8],
         w0 = widths[0],
         w1 = widths[1],
         w2 = widths[2],
@@ -355,6 +361,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         w5 = widths[5],
         w6 = widths[6],
         w7 = widths[7],
+        w8 = widths[8],
     ));
 
     let rule_len: usize = widths.iter().sum::<usize>() + 2 * (widths.len() - 1);
@@ -362,7 +369,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
 
     for row in rows {
         out.push_str(&format!(
-            "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}\n",
+            "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}\n",
             row[0],
             row[1],
             row[2],
@@ -371,6 +378,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
             row[5],
             row[6],
             row[7],
+            row[8],
             w0 = widths[0],
             w1 = widths[1],
             w2 = widths[2],
@@ -379,6 +387,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
             w5 = widths[5],
             w6 = widths[6],
             w7 = widths[7],
+            w8 = widths[8],
         ));
     }
 

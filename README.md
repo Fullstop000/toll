@@ -10,6 +10,7 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 
 - Tracks token usage from **Claude Code** (`~/.claude/projects/`), **Codex CLI** (`~/.codex/sessions/`), **Kimi Code** (`~/.kimi/sessions/`), and **Gemini** (`~/.gemini/tmp/`)
 - Shows input, output, cached tokens, cache hit rate, and estimated USD cost
+- Counts top-level user queries across supported tools
 - Uses compact `k` / `m` / `b` token units by default, with `--detail` for raw counts
 - Per-model breakdown across all sessions
 - Filter by today, last N days, or all time
@@ -99,15 +100,15 @@ Examples:
 Token usage — all time
 Collected: 2026-03-13 20:20:38 +08:00
 
-              Sessions   Input  Cached  Hit Rate  Net Input  Output   Total      Cost
-  ════════════════════════════════════════════════════════════════════════════════════
-  Claude Code       38  316.1m  304.2m     96.2%      11.9m    1.3m  317.5m  $168.59
-  Codex             21  148.9m  137.4m     92.3%      11.5m  777.8k  149.7m   $74.70
-  Kimi Code         15   34.6m   32.4m     93.6%       2.2m  206.2k   34.8m    $6.70
-  Gemini        10   28.5m   25.8m     90.5%       2.7m  185.5k   28.7m    $2.15
-  ────────────────────────────────────────────────────────────────────────────────────
-  Combined         114  528.1m  499.8m     94.6%      28.3m    2.5m  530.6m  $252.14
-  ────────────────────────────────────────────────────────────────────────────────────
+              Sessions  Queries   Input  Cached  Hit Rate  Net Input  Output   Total      Cost
+  ═══════════════════════════════════════════════════════════════════════════════════════════════
+  Claude Code       38      141  316.1m  304.2m     96.2%      11.9m    1.3m  317.5m  $168.59
+  Codex             21       62  148.9m  137.4m     92.3%      11.5m  777.8k  149.7m   $74.70
+  Kimi Code         15       44   34.6m   32.4m     93.6%       2.2m  206.2k   34.8m    $6.70
+  Gemini            10       31   28.5m   25.8m     90.5%       2.7m  185.5k   28.7m    $2.15
+  ───────────────────────────────────────────────────────────────────────────────────────────────
+  Combined          84      278  528.1m  499.8m     94.6%      28.3m    2.5m  530.6m  $252.14
+  ───────────────────────────────────────────────────────────────────────────────────────────────
 
   By model:
   ─────────────────────────────────────────────────────────────────────────────────
