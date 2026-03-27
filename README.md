@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/toll.svg)](https://crates.io/crates/toll)
 
-Token usage statistics for CLI coding agents — Claude Code, Codex CLI, Kimi Code, and Gemini.
+Token and usage statistics for local AI agents.
 
 The name is a double metaphor: tokens are the *toll* you pay to use AI coding agents, and heavy usage *takes a toll*.
 
