@@ -93,25 +93,31 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
                     model = Some(m.to_string());
                 }
 
-                // Extract timestamp and accumulate delta
-                if let Some(ts_str) = v
-                    .get("payload")
+                // Extract timestamp - check payload.timestamp first (for session_meta compatibility),
+                // then fall back to top-level timestamp (how real turn_context events store it).
+                let ts = v.get("payload")
                     .and_then(|p| p.get("timestamp"))
                     .and_then(|t| t.as_str())
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                {
+                    .or_else(|| {
+                        v.get("timestamp")
+                            .and_then(|t| t.as_str())
+                            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    });
+
+                // Accumulate delta only if previous model was valid.
+                // This excludes user think time between task_started and the next turn_context.
+                if let Some(ts_str) = ts {
                     let ts = ts_str.with_timezone(&Utc);
-                    if let Some(prev) = prev_ts {
-                        let delta = ts.signed_duration_since(prev);
-                        let delta_ms = delta.num_milliseconds() as u64;
-                        processing_time_ms += delta_ms;
-                        // Add delta to previous model's per-model processing time
-                        if prev_model_valid {
+                    if prev_model_valid
+                        && let Some(prev) = prev_ts {
+                            let delta = ts.signed_duration_since(prev);
+                            let delta_ms = delta.num_milliseconds() as u64;
+                            processing_time_ms += delta_ms;
                             if let Some(ref pm) = prev_model {
                                 *model_processing_time.entry(pm.clone()).or_insert(0) += delta_ms;
                             }
                         }
-                    }
                     prev_ts = Some(ts);
                     // Update prev_model for next iteration
                     if let Some(ref m) = model {
@@ -126,6 +132,9 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
                 };
                 if payload.get("type").and_then(|t| t.as_str()) == Some("task_started") {
                     user_queries += 1;
+                    // Reset model validity so the next turn_context's delta isn't
+                    // incorrectly attributed to the previous model (excludes user think time).
+                    prev_model_valid = false;
                 }
                 if payload.get("type").and_then(|t| t.as_str()) == Some("token_count")
                     && let Some(total) =
@@ -376,9 +385,11 @@ mod tests {
     }
 
     fn turn_context_line_with_timestamp(model: &str, timestamp: &str) -> String {
+        // Real turn_context events store timestamp at top level, not in payload.
         serde_json::json!({
             "type": "turn_context",
-            "payload": { "turn_id": "abc", "model": model, "timestamp": timestamp }
+            "timestamp": timestamp,
+            "payload": { "turn_id": "abc", "model": model }
         })
         .to_string()
     }

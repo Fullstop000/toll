@@ -1,7 +1,7 @@
 use crate::agent::Agent;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -130,6 +130,7 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
     };
     let pricing = pricing::lookup(KIMI_MODEL);
     let mut prev_ts: Option<DateTime<Utc>> = None;
+    let mut model_processing_time: HashMap<String, u64> = HashMap::new();
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
@@ -149,6 +150,9 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
                 }
             }
             usage.user_queries += 1;
+            // Reset timestamp so the next StatusUpdate doesn't incorrectly
+            // include user think time in processing time.
+            prev_ts = None;
             continue;
         }
         let Some(tu) = status_update_tokens(&v, since) else {
@@ -160,6 +164,7 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
         if let Some(prev) = prev_ts {
             let delta_ms = dt.signed_duration_since(prev).num_milliseconds();
             usage.processing_time_ms += delta_ms as u64;
+            *model_processing_time.entry(KIMI_MODEL.to_string()).or_insert(0) += delta_ms as u64;
         }
         prev_ts = Some(dt);
         let KimiTokens {
@@ -178,6 +183,13 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
             let cost = p.cost(inp_other, cache_create, cache_read, out);
             usage.cost_usd += cost;
             usage.record_model(KIMI_MODEL, inp_other, cache_create, cache_read, out, cost, 0);
+        }
+    }
+
+    // Update per-model processing time from accumulated tracking
+    for (model, proc_time) in model_processing_time {
+        if let Some(entry) = usage.by_model.get_mut(&model) {
+            entry.processing_time_ms = proc_time;
         }
     }
 

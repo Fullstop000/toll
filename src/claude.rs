@@ -94,26 +94,6 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
         });
         let current_ts = ts_str.and_then(|ts| ts.parse::<DateTime<Utc>>().ok());
 
-        // Accumulate processing time delta (delta belongs to prev_model)
-        let delta_ms = if let (Some(curr), Some(prev)) = (current_ts, prev_ts) {
-            (curr - prev).num_milliseconds() as u64
-        } else {
-            0
-        };
-        if delta_ms > 0 {
-            usage.processing_time_ms += delta_ms;
-            // Add delta to previous model's per-model processing time
-            if prev_model_valid {
-                if let Some(ref pm) = prev_model {
-                    let e = usage.by_model.entry(pm.clone()).or_default();
-                    e.processing_time_ms += delta_ms;
-                }
-            }
-        }
-        if current_ts.is_some() {
-            prev_ts = current_ts;
-        }
-
         // Date filter: check top-level timestamp or message.timestamp
         if let Some(since_dt) = since
             && let Some(dt) = current_ts
@@ -124,6 +104,9 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
 
         if is_top_level_user_query(&v) {
             usage.user_queries += 1;
+            // User messages reset the turn: next assistant delta should not include
+            // user think time, so mark prev_model_invalid.
+            prev_model_valid = false;
             continue;
         }
 
@@ -143,6 +126,20 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
             .unwrap_or(0);
         let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
 
+        // Accumulate processing time delta between consecutive assistant messages only.
+        // Skip if this is the first assistant in a turn (user think time not counted).
+        if prev_model_valid
+            && let (Some(curr), Some(prev)) = (current_ts, prev_ts) {
+                let delta_ms = (curr - prev).num_milliseconds() as u64;
+                if delta_ms > 0 {
+                    usage.processing_time_ms += delta_ms;
+                    if let Some(ref pm) = prev_model {
+                        let e = usage.by_model.entry(pm.clone()).or_default();
+                        e.processing_time_ms += delta_ms;
+                    }
+                }
+            }
+
         usage.input_tokens += inp + cache_create + cache_read;
         usage.cached_input_tokens += cache_read;
         usage.cache_write_tokens += cache_create;
@@ -161,10 +158,13 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
                 None => has_unknown_model = true,
             }
         }
-        // Update prev_model for next iteration's delta attribution
+        // Update prev_ts and prev_model for next iteration's delta attribution
+        prev_ts = current_ts;
         if model_valid {
             prev_model = Some(model.to_string());
-            prev_model_valid = pricing::lookup(&model).is_some();
+            prev_model_valid = pricing::lookup(model).is_some();
+        } else {
+            prev_model_valid = false;
         }
     }
 
@@ -552,7 +552,8 @@ mod tests {
         let usage = parse_claude_lines(cursor(json), None);
         assert_eq!(usage.processing_time_ms, 1000);
         assert_eq!(usage.total_tokens(), 450);
-        assert!((usage.tps().unwrap() - 450.0).abs() < 1e-6);
+        // TPS = output_tokens / processing_time_ms * 1000 = 150 / 1000 * 1000 = 150.0
+        assert!((usage.tps().unwrap() - 150.0).abs() < 1e-6);
     }
 
     #[test]

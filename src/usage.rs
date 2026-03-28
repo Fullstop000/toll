@@ -324,7 +324,8 @@ mod tests {
             processing_time_ms: 1000,
             ..Default::default()
         };
-        assert!((usage.tps().unwrap() - 1500.0).abs() < 1e-6);
+        // TPS = output_tokens / processing_time_ms * 1000 = 500 / 1000 * 1000 = 500.0
+        assert!((usage.tps().unwrap() - 500.0).abs() < 1e-6);
     }
 
     #[test]
