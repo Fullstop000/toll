@@ -8,7 +8,6 @@ The name is a double metaphor: tokens are the *toll* you pay to use AI coding ag
 
 ## Features
 
-- Tracks token usage from **Claude Code** (`~/.claude/projects/`), **Codex CLI** (`~/.codex/sessions/`), **Kimi Code** (`~/.kimi/sessions/`), and **Gemini** (`~/.gemini/tmp/`)
 - Shows input, output, cached tokens, cache hit rate, and estimated USD cost
 - Counts top-level user queries across supported tools
 - Uses compact `k` / `m` / `b` token units by default, with `--detail` for raw counts
