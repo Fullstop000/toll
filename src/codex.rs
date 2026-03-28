@@ -204,7 +204,12 @@ fn codex_session_paths(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> Vec
 }
 
 fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
-    Some(path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/"))
+    Some(
+        path.strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
 }
 
 pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -247,10 +252,7 @@ pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) ->
     total
 }
 
-pub fn collect_codex_snapshot(
-    sessions_dir: &Path,
-    since: Option<DateTime<Utc>>,
-) -> AgentSnapshot {
+pub fn collect_codex_snapshot(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
     let mut snapshot = AgentSnapshot::default();
 
     if !sessions_dir.exists() {

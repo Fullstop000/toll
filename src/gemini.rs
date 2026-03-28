@@ -46,7 +46,12 @@ impl Agent for GeminiAgent {
 }
 
 fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
-    Some(path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/"))
+    Some(
+        path.strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
 }
 
 fn collect_gemini_usage(data_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -118,7 +123,8 @@ fn collect_gemini_snapshot(data_dir: &Path, since: Option<DateTime<Utc>>) -> Age
                 continue;
             }
 
-            let key = snapshot_key(data_dir, entry.path()).expect("session path should be relative");
+            let key =
+                snapshot_key(data_dir, entry.path()).expect("session path should be relative");
             snapshot.insert(key, SessionUsage { totals, by_day });
         }
     }

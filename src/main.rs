@@ -252,7 +252,11 @@ fn render_watch_table_frame(
         out.push_str(&render_daily_table("watch session", by_day, number_format));
     } else {
         match summary_rows {
-            [single] => out.push_str(&render_single_table(single.name, &single.usage, number_format)),
+            [single] => out.push_str(&render_single_table(
+                single.name,
+                &single.usage,
+                number_format,
+            )),
             _ => {
                 let display_rows: Vec<(&str, &TokenUsage)> = summary_rows
                     .iter()
@@ -292,8 +296,7 @@ fn run_watch(
     let baseline = collect_selected_snapshots(agents, home, None);
     let interrupted = Arc::new(AtomicBool::new(false));
 
-    signal_flag::register(SIGINT, Arc::clone(&interrupted))
-        .expect("ctrl-c handler should install");
+    signal_flag::register(SIGINT, Arc::clone(&interrupted)).expect("ctrl-c handler should install");
 
     loop {
         let current = collect_selected_snapshots(agents, home, None);
@@ -581,7 +584,11 @@ mod tests {
             .collect()
     }
 
-    fn session_usage(input_tokens: u64, cached_input_tokens: u64, output_tokens: u64) -> SessionUsage {
+    fn session_usage(
+        input_tokens: u64,
+        cached_input_tokens: u64,
+        output_tokens: u64,
+    ) -> SessionUsage {
         SessionUsage {
             totals: TokenUsage {
                 input_tokens,
