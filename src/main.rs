@@ -7,15 +7,25 @@ mod kimi;
 mod output;
 mod pricing;
 mod usage;
+mod watch;
 
 use agent::Agent;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::Parser;
+use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::{Duration, Instant};
 
 use claude::ClaudeAgent;
 use codex::CodexAgent;
-use display::{NumberFormat, print_daily_table, print_multi_table, print_single};
+use display::{
+    NumberFormat, print_daily_table, print_multi_table, print_single, render_daily_table,
+    render_multi_table, render_single_table,
+};
 use gemini::GeminiAgent;
 use kimi::KimiAgent;
 use output::{
@@ -23,7 +33,11 @@ use output::{
     render_summary_json,
 };
 use pricing::list_prices;
+use signal_hook::{consts::SIGINT, flag as signal_flag};
 use usage::{DailyUsage, TokenUsage, add_daily_usage};
+use watch::{AgentSnapshot, diff_snapshot};
+
+const WATCH_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Parser)]
 #[command(
@@ -35,6 +49,8 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
   toll --today      # today only
   toll --days 7     # last 7 days
   toll --by-day --days 7  # daily summary table
+  toll --watch            # live delta stats until Ctrl-C
+  toll --watch --by-day   # live per-day delta stats
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
@@ -53,6 +69,14 @@ struct Args {
 
     #[arg(long, value_name = "N", help = "Show last N days")]
     days: Option<u32>,
+
+    #[arg(
+        long,
+        conflicts_with = "today",
+        conflicts_with = "days",
+        help = "Watch usage deltas from now until interrupted"
+    )]
+    watch: bool,
 
     #[arg(long, help = "Show Claude stats only")]
     claude: bool,
@@ -129,6 +153,11 @@ struct AgentUsage<'a> {
     usage: TokenUsage,
 }
 
+struct AgentSnapshotEntry<'a> {
+    name: &'a str,
+    snapshot: AgentSnapshot,
+}
+
 /// Collect aggregate usage for all enabled agents.
 fn collect_selected_usage<'a>(
     agents: &[&'a dyn Agent],
@@ -142,6 +171,207 @@ fn collect_selected_usage<'a>(
             usage: collect_usage_for_agent(*agent, home, since),
         })
         .collect()
+}
+
+fn collect_snapshot_for_agent(
+    agent: &dyn Agent,
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> AgentSnapshot {
+    let data_dir = agent.data_dir(home);
+    agent.collect_snapshot(&data_dir, since)
+}
+
+fn collect_selected_snapshots<'a>(
+    agents: &[&'a dyn Agent],
+    home: &std::path::Path,
+    since: Option<DateTime<Utc>>,
+) -> Vec<AgentSnapshotEntry<'a>> {
+    agents
+        .iter()
+        .map(|agent| AgentSnapshotEntry {
+            name: agent.name(),
+            snapshot: collect_snapshot_for_agent(*agent, home, since),
+        })
+        .collect()
+}
+
+fn diff_selected_snapshot_usage<'a>(
+    baseline: &[AgentSnapshotEntry<'a>],
+    current: &[AgentSnapshotEntry<'a>],
+) -> Vec<AgentUsage<'a>> {
+    baseline
+        .iter()
+        .zip(current.iter())
+        .map(|(baseline_entry, current_entry)| AgentUsage {
+            name: current_entry.name,
+            usage: diff_snapshot(&baseline_entry.snapshot, &current_entry.snapshot).total,
+        })
+        .collect()
+}
+
+fn diff_selected_snapshot_daily_usage(
+    baseline: &[AgentSnapshotEntry<'_>],
+    current: &[AgentSnapshotEntry<'_>],
+) -> DailyUsage {
+    let mut by_day = DailyUsage::default();
+
+    for (baseline_entry, current_entry) in baseline.iter().zip(current.iter()) {
+        let delta = diff_snapshot(&baseline_entry.snapshot, &current_entry.snapshot);
+        for (date, usage) in delta.by_day {
+            add_daily_usage(&mut by_day, date, &usage);
+        }
+    }
+
+    by_day
+}
+
+fn watch_sessions_scanned(usages: &[AgentUsage<'_>]) -> u32 {
+    usages.iter().map(|entry| entry.usage.sessions).sum()
+}
+
+fn render_watch_table_frame(
+    args: &Args,
+    number_format: NumberFormat,
+    started_at: chrono::DateTime<Local>,
+    refreshed_at: chrono::DateTime<Local>,
+    summary_rows: &[AgentUsage<'_>],
+    by_day: &DailyUsage,
+    final_frame: bool,
+) -> String {
+    let mut out = String::new();
+    out.push_str("\x1B[2J\x1B[H");
+    out.push_str("\nWatch usage — session delta\n");
+    out.push_str(&format!(
+        "Started: {}\nRefreshed: {}\n",
+        started_at.format("%Y-%m-%d %H:%M:%S %Z"),
+        refreshed_at.format("%Y-%m-%d %H:%M:%S %Z")
+    ));
+
+    if args.by_day {
+        out.push_str(&render_daily_table("watch session", by_day, number_format));
+    } else {
+        match summary_rows {
+            [single] => out.push_str(&render_single_table(
+                single.name,
+                &single.usage,
+                number_format,
+            )),
+            _ => {
+                let display_rows: Vec<(&str, &TokenUsage)> = summary_rows
+                    .iter()
+                    .map(|entry| (entry.name, &entry.usage))
+                    .collect();
+                out.push_str(&render_multi_table(&display_rows, number_format));
+            }
+        }
+    }
+
+    out.push_str(&format!(
+        "  Scanned {} session(s)\n",
+        watch_sessions_scanned(summary_rows)
+    ));
+    if final_frame {
+        out.push_str("  Watch stopped.\n");
+    } else {
+        out.push_str(&format!(
+            "  Refreshing every {}s. Press Ctrl-C to stop.\n",
+            WATCH_REFRESH_INTERVAL.as_secs()
+        ));
+    }
+
+    out
+}
+
+fn run_watch(
+    args: &Args,
+    agents: &[&dyn Agent],
+    home: &std::path::Path,
+    number_format: NumberFormat,
+    output_mode: OutputMode,
+    filters: OutputFilters,
+) {
+    let started_at = Local::now();
+    let started = Instant::now();
+    let baseline = collect_selected_snapshots(agents, home, None);
+    let interrupted = Arc::new(AtomicBool::new(false));
+
+    signal_flag::register(SIGINT, Arc::clone(&interrupted)).expect("ctrl-c handler should install");
+
+    loop {
+        let current = collect_selected_snapshots(agents, home, None);
+        let summary_rows = diff_selected_snapshot_usage(&baseline, &current);
+        let by_day = diff_selected_snapshot_daily_usage(&baseline, &current);
+        let collected_at = Local::now();
+
+        if output_mode == OutputMode::Table {
+            let frame = render_watch_table_frame(
+                args,
+                number_format,
+                started_at,
+                collected_at,
+                &summary_rows,
+                &by_day,
+                interrupted.load(Ordering::SeqCst),
+            );
+            print!("{frame}");
+            io::stdout().flush().expect("watch output should flush");
+        }
+
+        if interrupted.load(Ordering::SeqCst) {
+            let display_rows: Vec<(&str, &TokenUsage)> = summary_rows
+                .iter()
+                .map(|entry| (entry.name, &entry.usage))
+                .collect();
+
+            match output_mode {
+                OutputMode::Table => {
+                    println!();
+                }
+                OutputMode::Csv => {
+                    if args.by_day {
+                        println!("{}", render_daily_csv(&by_day, number_format));
+                    } else {
+                        println!("{}", render_summary_csv(&display_rows, number_format));
+                    }
+                }
+                OutputMode::Json => {
+                    let elapsed_seconds = started.elapsed().as_secs_f64();
+                    let sessions_total = watch_sessions_scanned(&summary_rows);
+                    if args.by_day {
+                        println!(
+                            "{}",
+                            render_daily_json(
+                                "watch session",
+                                &collected_at.to_rfc3339(),
+                                filters,
+                                elapsed_seconds,
+                                sessions_total,
+                                &by_day,
+                            )
+                            .expect("daily JSON output should serialize")
+                        );
+                    } else {
+                        println!(
+                            "{}",
+                            render_summary_json(
+                                "watch session",
+                                &collected_at.to_rfc3339(),
+                                filters,
+                                elapsed_seconds,
+                                sessions_total,
+                                &display_rows,
+                            )
+                            .expect("summary JSON output should serialize")
+                        );
+                    }
+                }
+            }
+            return;
+        }
+
+        std::thread::sleep(WATCH_REFRESH_INTERVAL);
+    }
 }
 
 /// Collect and merge daily usage for all enabled agents.
@@ -181,7 +411,10 @@ fn main() {
     let since: Option<DateTime<Utc>>;
     let period: String;
 
-    if args.today {
+    if args.watch {
+        since = None;
+        period = "watch session".to_string();
+    } else if args.today {
         let local_today = Local::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
         since = Some(
             Local
@@ -238,6 +471,7 @@ fn main() {
     .filter_map(|(show, a)| show.then_some(a))
     .collect();
     let filters = OutputFilters {
+        watch: args.watch,
         today: args.today,
         days: args.days,
         claude: args.claude,
@@ -247,6 +481,11 @@ fn main() {
         by_day: args.by_day,
         detail: args.detail,
     };
+
+    if args.watch {
+        run_watch(&args, &agents, &home, number_format, output_mode, filters);
+        return;
+    }
 
     let t0 = std::time::Instant::now();
 
@@ -336,6 +575,32 @@ fn main() {
 mod tests {
     use super::*;
     use std::path::Path;
+    use watch::{AgentSnapshot, SessionUsage};
+
+    fn snapshot(entries: [(&str, SessionUsage); 1]) -> AgentSnapshot {
+        entries
+            .into_iter()
+            .map(|(session_id, usage)| (session_id.to_string(), usage))
+            .collect()
+    }
+
+    fn session_usage(
+        input_tokens: u64,
+        cached_input_tokens: u64,
+        output_tokens: u64,
+    ) -> SessionUsage {
+        SessionUsage {
+            totals: TokenUsage {
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                sessions: 1,
+                user_queries: 1,
+                ..Default::default()
+            },
+            by_day: DailyUsage::default(),
+        }
+    }
 
     #[test]
     fn parses_detail_flag() {
@@ -370,6 +635,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_watch_flag() {
+        let args = Args::try_parse_from(["toll", "--watch"]).expect("should parse");
+        assert!(args.watch);
+    }
+
+    #[test]
+    fn parses_watch_with_by_day() {
+        let args = Args::try_parse_from(["toll", "--watch", "--by-day"]).expect("should parse");
+        assert!(args.watch);
+        assert!(args.by_day);
+    }
+
+    #[test]
+    fn rejects_watch_with_today() {
+        assert!(Args::try_parse_from(["toll", "--watch", "--today"]).is_err());
+    }
+
+    #[test]
+    fn rejects_watch_with_days() {
+        assert!(Args::try_parse_from(["toll", "--watch", "--days", "7"]).is_err());
+    }
+
+    #[test]
     fn parses_json_flag() {
         let args = Args::try_parse_from(["toll", "--json"]).expect("should parse");
         assert!(args.json);
@@ -381,6 +669,42 @@ mod tests {
         let args = Args::try_parse_from(["toll", "--csv"]).expect("should parse");
         assert!(args.csv);
         assert_eq!(output_mode(&args), OutputMode::Csv);
+    }
+
+    #[test]
+    fn diff_selected_snapshot_usage_uses_delta_rows() {
+        let baseline = vec![AgentSnapshotEntry {
+            name: "Codex",
+            snapshot: snapshot([("session-a", session_usage(100, 40, 10))]),
+        }];
+        let current = vec![AgentSnapshotEntry {
+            name: "Codex",
+            snapshot: snapshot([("session-a", session_usage(160, 70, 16))]),
+        }];
+
+        let rows = diff_selected_snapshot_usage(&baseline, &current);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].usage.input_tokens, 60);
+        assert_eq!(rows[0].usage.cached_input_tokens, 30);
+        assert_eq!(rows[0].usage.output_tokens, 6);
+        assert_eq!(rows[0].usage.user_queries, 0);
+    }
+
+    #[test]
+    fn render_watch_table_frame_mentions_refresh_interval() {
+        let args = Args::try_parse_from(["toll", "--watch"]).expect("should parse");
+        let frame = render_watch_table_frame(
+            &args,
+            NumberFormat::Full,
+            Local::now(),
+            Local::now(),
+            &[],
+            &DailyUsage::default(),
+            false,
+        );
+
+        assert!(frame.contains("Refreshing every 2s."));
     }
 
     #[test]

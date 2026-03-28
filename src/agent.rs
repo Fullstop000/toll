@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
 
 use crate::usage::{DailyUsageReport, TokenUsage};
+use crate::watch::AgentSnapshot;
 
 /// Shared behavior for a usage source such as Claude Code or Codex.
 pub trait Agent {
@@ -20,4 +21,7 @@ pub trait Agent {
         data_dir: &Path,
         since: Option<DateTime<Utc>>,
     ) -> DailyUsageReport;
+
+    /// Collect usage snapshots keyed by logical session identifier.
+    fn collect_snapshot(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot;
 }

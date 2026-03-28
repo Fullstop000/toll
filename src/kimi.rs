@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
+use crate::watch::{AgentSnapshot, SessionUsage};
 
 /// Model identifier used in Kimi Code sessions.
 const KIMI_MODEL: &str = "kimi-for-coding";
@@ -42,6 +43,21 @@ impl Agent for KimiAgent {
     ) -> DailyUsageReport {
         collect_kimi_daily_usage(data_dir, since)
     }
+
+    fn collect_snapshot(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+        collect_kimi_snapshot(data_dir, since)
+    }
+}
+
+fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
+    let session_dir = path.parent()?;
+    Some(
+        session_dir
+            .strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
 }
 
 /// Parse a Unix float timestamp (seconds since epoch) to `DateTime<Utc>`.
@@ -289,10 +305,46 @@ pub fn collect_kimi_daily_usage(
     report
 }
 
+pub fn collect_kimi_snapshot(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+    let mut snapshot = AgentSnapshot::default();
+
+    if !sessions_dir.exists() {
+        return snapshot;
+    }
+
+    for entry in WalkDir::new(sessions_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file() && e.file_name().to_str() == Some("wire.jsonl"))
+    {
+        let path = entry.path();
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        let totals = parse_kimi_lines(BufReader::new(file), since);
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        let by_day = parse_kimi_lines_by_day(BufReader::new(file), since);
+
+        if totals.total_tokens() == 0 && totals.user_queries == 0 && by_day.is_empty() {
+            continue;
+        }
+
+        let key = snapshot_key(sessions_dir, path).expect("session path should be relative");
+        snapshot.insert(key, SessionUsage { totals, by_day });
+    }
+
+    snapshot
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Cursor;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn cursor(s: &str) -> Cursor<Vec<u8>> {
         Cursor::new(s.as_bytes().to_vec())
@@ -327,6 +379,14 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
     }
 
     #[test]
@@ -407,5 +467,33 @@ mod tests {
         assert_eq!(day.input_tokens, 300);
         assert_eq!(day.output_tokens, 30);
         assert_eq!(day.sessions, 1);
+    }
+
+    #[test]
+    fn collect_kimi_snapshot_uses_session_directory_key() {
+        let root = unique_temp_dir("toll-kimi-snapshot-test");
+        let session_dir = root.join("team/project/session-123");
+        fs::create_dir_all(&session_dir).expect("should create kimi session dir");
+
+        fs::write(
+            session_dir.join("wire.jsonl"),
+            format!(
+                "{}\n{}\n",
+                turn_begin_line(1_772_971_392.0, "prompt"),
+                make_line(1_772_971_394.0, 100, 25, 0, 10),
+            ),
+        )
+        .expect("should write kimi session");
+
+        let snapshot = collect_kimi_snapshot(&root, None);
+        let session = snapshot
+            .get("team/project/session-123")
+            .expect("session should exist");
+
+        assert_eq!(session.totals.user_queries, 1);
+        assert_eq!(session.totals.cached_input_tokens, 25);
+        assert_eq!(session.by_day.len(), 1);
+
+        fs::remove_dir_all(root).expect("should clean temp kimi dir");
     }
 }

@@ -15,6 +15,7 @@ pub enum OutputMode {
 /// Parsed filter metadata emitted in JSON output.
 #[derive(Debug, Serialize)]
 pub struct OutputFilters {
+    pub watch: bool,
     pub today: bool,
     pub days: Option<u32>,
     pub claude: bool,
@@ -392,6 +393,7 @@ mod tests {
             "all time",
             "2026-03-13T01:00:00+08:00",
             OutputFilters {
+                watch: true,
                 today: false,
                 days: None,
                 claude: false,
@@ -408,6 +410,7 @@ mod tests {
         .expect("json should render");
 
         assert!(rendered.contains("\"type\": \"summary\""));
+        assert!(rendered.contains("\"watch\": true"));
         assert!(rendered.contains("\"combined\""));
         assert!(rendered.contains("\"total_tokens\": 330"));
         assert!(rendered.contains("\"user_queries\": 10"));

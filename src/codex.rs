@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::{DailyUsageReport, TokenUsage, add_daily_usage};
+use crate::watch::{AgentSnapshot, SessionUsage};
 
 /// Codex usage collector.
 pub struct CodexAgent;
@@ -39,6 +40,10 @@ impl Agent for CodexAgent {
         since: Option<DateTime<Utc>>,
     ) -> DailyUsageReport {
         collect_codex_daily_usage(data_dir, since)
+    }
+
+    fn collect_snapshot(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+        collect_codex_snapshot(data_dir, since)
     }
 }
 
@@ -198,6 +203,15 @@ fn codex_session_paths(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> Vec
         .collect()
 }
 
+fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
+    Some(
+        path.strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
+}
+
 pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
     if !sessions_dir.exists() {
         return TokenUsage::default();
@@ -236,6 +250,30 @@ pub fn collect_codex_usage(sessions_dir: &Path, since: Option<DateTime<Utc>>) ->
     });
 
     total
+}
+
+pub fn collect_codex_snapshot(sessions_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+    let mut snapshot = AgentSnapshot::default();
+
+    if !sessions_dir.exists() {
+        return snapshot;
+    }
+
+    for path in codex_session_paths(sessions_dir, since) {
+        let Some(totals) = parse_codex_session(&path) else {
+            continue;
+        };
+        let Some(dt) = codex_session_date(&path) else {
+            continue;
+        };
+
+        let mut by_day = crate::usage::DailyUsage::default();
+        add_daily_usage(&mut by_day, dt.with_timezone(&Local).date_naive(), &totals);
+        let key = snapshot_key(sessions_dir, &path).expect("session path should be relative");
+        snapshot.insert(key, SessionUsage { totals, by_day });
+    }
+
+    snapshot
 }
 
 /// Collect Codex usage aggregated by local calendar date.
@@ -533,6 +571,33 @@ mod tests {
         assert_eq!(report.by_day[&date].input_tokens, 400);
         assert_eq!(report.by_day[&date].cached_input_tokens, 125);
         assert_eq!(report.by_day[&date].output_tokens, 30);
+
+        fs::remove_dir_all(root).expect("should clean temp session dir");
+    }
+
+    #[test]
+    fn collect_codex_snapshot_uses_rollout_relative_path() {
+        let root = unique_temp_dir("toll-codex-snapshot-test");
+        let day_dir = root.join("2026/03/09");
+        fs::create_dir_all(&day_dir).expect("should create temp session dir");
+
+        fs::write(
+            day_dir.join("rollout-2026-03-09T08-00-00-aaaa.jsonl"),
+            format!(
+                "{}\n{}\n",
+                turn_context_line("gpt-5.4"),
+                token_count_line(100, 25, 10)
+            ),
+        )
+        .expect("should write rollout");
+
+        let snapshot = collect_codex_snapshot(&root, None);
+        let session = snapshot
+            .get("2026/03/09/rollout-2026-03-09T08-00-00-aaaa.jsonl")
+            .expect("session should exist");
+
+        assert_eq!(session.totals.total_tokens(), 110);
+        assert_eq!(session.by_day.len(), 1);
 
         fs::remove_dir_all(root).expect("should clean temp session dir");
     }
