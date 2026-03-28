@@ -17,6 +17,7 @@ pub struct TokenUsage {
     pub cost_usd: f64,
     /// Sessions whose model pricing was not found
     pub unknown_cost_sessions: u32,
+    pub processing_time_ms: u64,
     /// Per-model breakdown (model name → usage); inner entries keep by_model empty.
     pub by_model: BTreeMap<String, TokenUsage>,
 }
@@ -41,6 +42,7 @@ impl TokenUsage {
         self.user_queries += other.user_queries;
         self.cost_usd += other.cost_usd;
         self.unknown_cost_sessions += other.unknown_cost_sessions;
+        self.processing_time_ms += other.processing_time_ms;
         for (model, usage) in &other.by_model {
             self.by_model.entry(model.clone()).or_default().add(usage);
         }
@@ -78,6 +80,16 @@ impl TokenUsage {
         self.unknown_cost_sessions > 0
     }
 
+    /// Tokens per second = total_tokens / processing_time_ms * 1000
+    /// Returns None if processing_time_ms is 0.
+    #[allow(dead_code)]
+    pub fn tps(&self) -> Option<f64> {
+        if self.processing_time_ms == 0 {
+            return None;
+        }
+        Some(self.total_tokens() as f64 / self.processing_time_ms as f64 * 1000.0)
+    }
+
     pub fn saturating_sub(&self, baseline: &TokenUsage) -> TokenUsage {
         let mut by_model = BTreeMap::new();
 
@@ -109,6 +121,9 @@ impl TokenUsage {
             unknown_cost_sessions: self
                 .unknown_cost_sessions
                 .saturating_sub(baseline.unknown_cost_sessions),
+            processing_time_ms: self
+                .processing_time_ms
+                .saturating_sub(baseline.processing_time_ms),
             by_model,
         }
     }
@@ -296,5 +311,27 @@ mod tests {
         assert_eq!(by_day[&date].input_tokens, 100);
         assert_eq!(by_day[&date].output_tokens, 25);
         assert_eq!(by_day[&date].sessions, 2);
+    }
+
+    #[test]
+    fn tps_returns_tokens_per_second() {
+        let usage = TokenUsage {
+            input_tokens: 1000,
+            output_tokens: 500,
+            processing_time_ms: 1000,
+            ..Default::default()
+        };
+        assert!((usage.tps().unwrap() - 1500.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tps_returns_none_when_no_processing_time() {
+        let usage = TokenUsage {
+            input_tokens: 1000,
+            output_tokens: 500,
+            processing_time_ms: 0,
+            ..Default::default()
+        };
+        assert!(usage.tps().is_none());
     }
 }
