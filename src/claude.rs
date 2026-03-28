@@ -73,6 +73,7 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
         ..Default::default()
     };
     let mut has_unknown_model = false;
+    let mut prev_ts: Option<DateTime<Utc>> = None;
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
@@ -83,19 +84,29 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
             continue;
         };
 
+        // Extract timestamp for delta accumulation (before since filter)
+        let ts_str = v.get("timestamp").and_then(|t| t.as_str()).or_else(|| {
+            v.get("message")
+                .and_then(|m| m.get("timestamp"))
+                .and_then(|t| t.as_str())
+        });
+        let current_ts = ts_str.and_then(|ts| ts.parse::<DateTime<Utc>>().ok());
+
+        // Accumulate processing time delta
+        if let (Some(curr), Some(prev)) = (current_ts, prev_ts) {
+            let delta_ms = (curr - prev).num_milliseconds() as u64;
+            usage.processing_time_ms += delta_ms;
+        }
+        if current_ts.is_some() {
+            prev_ts = current_ts;
+        }
+
         // Date filter: check top-level timestamp or message.timestamp
-        if let Some(since_dt) = since {
-            let ts_str = v.get("timestamp").and_then(|t| t.as_str()).or_else(|| {
-                v.get("message")
-                    .and_then(|m| m.get("timestamp"))
-                    .and_then(|t| t.as_str())
-            });
-            if let Some(ts) = ts_str
-                && let Ok(dt) = ts.parse::<DateTime<Utc>>()
-                && dt < since_dt
-            {
-                continue;
-            }
+        if let Some(since_dt) = since
+            && let Some(dt) = current_ts
+            && dt < since_dt
+        {
+            continue;
         }
 
         if is_top_level_user_query(&v) {
@@ -513,6 +524,16 @@ mod tests {
         );
         let usage = parse_claude_lines(cursor(&data), None);
         assert_eq!(usage.input_tokens, 100);
+    }
+
+    #[test]
+    fn parse_claude_lines_accumulates_processing_time() {
+        let json = r#"{"timestamp":"2026-03-28T10:00:00Z","message":{"model":"claude-opus-4-6","usage":{"input_tokens":100,"output_tokens":50}}}
+{"timestamp":"2026-03-28T10:00:01Z","message":{"model":"claude-opus-4-6","usage":{"input_tokens":200,"output_tokens":100}}}"#;
+        let usage = parse_claude_lines(cursor(json), None);
+        assert_eq!(usage.processing_time_ms, 1000);
+        assert_eq!(usage.total_tokens(), 450);
+        assert!((usage.tps().unwrap() - 450.0).abs() < 1e-6);
     }
 
     #[test]
