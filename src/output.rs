@@ -78,6 +78,7 @@ pub struct JsonUsageRecord {
     pub user_queries: u32,
     pub cost_usd: f64,
     pub unknown_cost_sessions: u32,
+    pub tps: Option<f64>,
 }
 
 /// Per-day usage entry emitted in JSON daily output.
@@ -107,6 +108,7 @@ fn json_usage_record(usage: &TokenUsage) -> JsonUsageRecord {
         user_queries: usage.user_queries,
         cost_usd: usage.cost_usd,
         unknown_cost_sessions: usage.unknown_cost_sessions,
+        tps: usage.tps(),
     }
 }
 
@@ -144,6 +146,7 @@ fn combined_models(usages: &[(&str, &TokenUsage)]) -> BTreeMap<String, TokenUsag
 
 /// Render one CSV summary row.
 fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String {
+    let tps_str = usage.tps().map(|v| format!("{:.2}", v)).unwrap_or_default();
     let values = [
         name.to_string(),
         usage.sessions.to_string(),
@@ -157,6 +160,7 @@ fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> Stri
         fmt_num_with_format(usage.output_tokens, format),
         fmt_num_with_format(usage.total_tokens(), format),
         fmt_cost(usage),
+        tps_str,
     ];
 
     values
@@ -168,11 +172,13 @@ fn csv_summary_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> Stri
 
 /// Render one CSV by-model row.
 fn csv_model_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String {
+    let tps_str = usage.tps().map(|v| format!("{:.2}", v)).unwrap_or_default();
     let values = [
         name.to_string(),
         fmt_num_with_format(usage.total_tokens(), format),
         fmt_num_with_format(usage.output_tokens, format),
         fmt_cost(usage),
+        tps_str,
     ];
 
     values
@@ -185,7 +191,7 @@ fn csv_model_row(name: &str, usage: &TokenUsage, format: NumberFormat) -> String
 /// Render summary CSV for the currently selected agents.
 pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
     let mut lines = vec![
-        "Agent,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string(),
+        "Agent,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost,TPS".to_string(),
     ];
 
     for (name, usage) in usages {
@@ -200,7 +206,7 @@ pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
     let all_models = combined_models(usages);
     if !all_models.is_empty() {
         lines.push(String::new());
-        lines.push("Model,Tokens,Output,Cost".to_string());
+        lines.push("Model,Tokens,Output,Cost,TPS".to_string());
         for (model, usage) in all_models {
             lines.push(csv_model_row(&model, &usage, format));
         }
@@ -211,10 +217,12 @@ pub fn render_summary_csv(usages: &[(&str, &TokenUsage)], format: NumberFormat) 
 
 /// Render daily CSV for the current aggregated daily view.
 pub fn render_daily_csv(by_day: &DailyUsage, format: NumberFormat) -> String {
-    let mut lines =
-        vec!["Date,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost".to_string()];
+    let mut lines = vec![
+        "Date,Sessions,Queries,Input,Cached,Hit Rate,Net Input,Output,Total,Cost,TPS".to_string(),
+    ];
 
     for (date, usage) in by_day.iter().rev() {
+        let tps_str = usage.tps().map(|v| format!("{:.2}", v)).unwrap_or_default();
         let values = [
             date.format("%Y-%m-%d").to_string(),
             usage.sessions.to_string(),
@@ -228,6 +236,7 @@ pub fn render_daily_csv(by_day: &DailyUsage, format: NumberFormat) -> String {
             fmt_num_with_format(usage.output_tokens, format),
             fmt_num_with_format(usage.total_tokens(), format),
             fmt_cost(usage),
+            tps_str,
         ];
         lines.push(
             values
@@ -331,9 +340,9 @@ mod tests {
         let rendered = render_summary_csv(&[("Codex", &usage)], NumberFormat::Compact);
 
         assert!(rendered.starts_with("Agent,Sessions,Queries,Input,Cached,Hit Rate"));
-        assert!(rendered.contains("Codex,2,7,12.5k,2.5k,20.0%,10.0k,500,13.0k,$1.25"));
-        assert!(rendered.contains("\n\nModel,Tokens,Output,Cost\n"));
-        assert!(rendered.contains("gpt-5.4,13.0k,500,$1.25"));
+        assert!(rendered.contains("Codex,2,7,12.5k,2.5k,20.0%,10.0k,500,13.0k,$1.25,"));
+        assert!(rendered.contains("\n\nModel,Tokens,Output,Cost,TPS\n"));
+        assert!(rendered.contains("gpt-5.4,13.0k,500,$1.25,"));
     }
 
     #[test]
