@@ -151,15 +151,25 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
 
     let mut usage = TokenUsage::default();
     let mut has_unknown_model = false;
+    let mut prev_ts: Option<DateTime<Utc>> = None;
 
     for msg in messages {
+        let Some(dt) = parse_timestamp(msg, session_start) else {
+            continue;
+        };
+
         if msg.get("type").and_then(|t| t.as_str()) == Some("user") {
             if let Some(since_dt) = since
-                && let Some(dt) = parse_timestamp(msg, session_start)
                 && dt < since_dt
             {
                 continue;
             }
+            // Accumulate timestamp delta before processing
+            if let Some(prev) = prev_ts {
+                usage.processing_time_ms +=
+                    dt.signed_duration_since(prev).num_milliseconds() as u64;
+            }
+            prev_ts = Some(dt);
             usage.user_queries += 1;
             continue;
         }
@@ -172,11 +182,16 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
         };
 
         if let Some(since_dt) = since
-            && let Some(dt) = parse_timestamp(msg, session_start)
             && dt < since_dt
         {
             continue;
         }
+
+        // Accumulate timestamp delta before processing
+        if let Some(prev) = prev_ts {
+            usage.processing_time_ms += dt.signed_duration_since(prev).num_milliseconds() as u64;
+        }
+        prev_ts = Some(dt);
 
         let input = tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
         let output = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -466,6 +481,52 @@ mod tests {
         let usage = parse_gemini_session(&session, None);
         assert_eq!(usage.sessions, 1);
         assert_eq!(usage.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn parse_gemini_usage_accumulates_processing_time() {
+        // Messages at: 00:00:00, 00:00:01, 00:00:30, 00:01:00
+        // Deltas: 1s, 29s, 30s = 60_000ms total
+        let session = json!({
+            "startTime": "2026-03-15T00:00:00Z",
+            "messages": [
+                {
+                    "type": "user",
+                    "timestamp": "2026-03-15T00:00:00Z",
+                    "content": [{"text": "first prompt"}]
+                },
+                {
+                    "type": "gemini",
+                    "timestamp": "2026-03-15T00:00:01Z",
+                    "model": "gemini-3.1-flash",
+                    "tokens": {
+                        "input": 1000,
+                        "output": 100,
+                        "cached": 0
+                    }
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-03-15T00:00:30Z",
+                    "content": [{"text": "follow-up"}]
+                },
+                {
+                    "type": "gemini",
+                    "timestamp": "2026-03-15T00:01:00Z",
+                    "model": "gemini-3.1-flash",
+                    "tokens": {
+                        "input": 2000,
+                        "output": 200,
+                        "cached": 1000
+                    }
+                }
+            ]
+        });
+
+        let usage = parse_gemini_session(&session, None);
+
+        // 1000ms + 29000ms + 30000ms = 60000ms
+        assert_eq!(usage.processing_time_ms, 60_000);
     }
 
     #[test]
