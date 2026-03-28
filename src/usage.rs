@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct TokenUsage {
     /// Total input tokens sent (= pure_input + cache_write + cache_read)
     pub input_tokens: u64,
@@ -76,6 +76,41 @@ impl TokenUsage {
 
     pub fn has_unknown_cost(&self) -> bool {
         self.unknown_cost_sessions > 0
+    }
+
+    pub fn saturating_sub(&self, baseline: &TokenUsage) -> TokenUsage {
+        let mut by_model = BTreeMap::new();
+
+        for (model, usage) in &self.by_model {
+            let baseline_usage = baseline.by_model.get(model).cloned().unwrap_or_default();
+            let delta = usage.saturating_sub(&baseline_usage);
+            if delta.total_tokens() > 0
+                || delta.sessions > 0
+                || delta.user_queries > 0
+                || delta.cost_usd > 0.0
+                || delta.unknown_cost_sessions > 0
+            {
+                by_model.insert(model.clone(), delta);
+            }
+        }
+
+        TokenUsage {
+            input_tokens: self.input_tokens.saturating_sub(baseline.input_tokens),
+            cached_input_tokens: self
+                .cached_input_tokens
+                .saturating_sub(baseline.cached_input_tokens),
+            cache_write_tokens: self
+                .cache_write_tokens
+                .saturating_sub(baseline.cache_write_tokens),
+            output_tokens: self.output_tokens.saturating_sub(baseline.output_tokens),
+            sessions: self.sessions.saturating_sub(baseline.sessions),
+            user_queries: self.user_queries.saturating_sub(baseline.user_queries),
+            cost_usd: (self.cost_usd - baseline.cost_usd).max(0.0),
+            unknown_cost_sessions: self
+                .unknown_cost_sessions
+                .saturating_sub(baseline.unknown_cost_sessions),
+            by_model,
+        }
     }
 }
 
@@ -182,6 +217,55 @@ mod tests {
         assert!(!u.has_unknown_cost());
         u.unknown_cost_sessions = 1;
         assert!(u.has_unknown_cost());
+    }
+
+    #[test]
+    fn saturating_sub_subtracts_scalars() {
+        let current = TokenUsage {
+            input_tokens: 120,
+            cached_input_tokens: 90,
+            cache_write_tokens: 10,
+            output_tokens: 20,
+            sessions: 3,
+            user_queries: 4,
+            cost_usd: 7.0,
+            unknown_cost_sessions: 1,
+            ..Default::default()
+        };
+        let baseline = TokenUsage {
+            input_tokens: 100,
+            cached_input_tokens: 70,
+            cache_write_tokens: 5,
+            output_tokens: 12,
+            sessions: 1,
+            user_queries: 2,
+            cost_usd: 2.5,
+            ..Default::default()
+        };
+
+        let delta = current.saturating_sub(&baseline);
+
+        assert_eq!(delta.input_tokens, 20);
+        assert_eq!(delta.cached_input_tokens, 20);
+        assert_eq!(delta.cache_write_tokens, 5);
+        assert_eq!(delta.output_tokens, 8);
+        assert_eq!(delta.sessions, 2);
+        assert_eq!(delta.user_queries, 2);
+        assert!((delta.cost_usd - 4.5).abs() < 1e-9);
+        assert_eq!(delta.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn saturating_sub_clamps_models() {
+        let mut current = TokenUsage::default();
+        current.record_model("gpt-5", 100, 0, 40, 20, 3.0);
+
+        let mut baseline = TokenUsage::default();
+        baseline.record_model("gpt-5", 150, 0, 60, 25, 4.0);
+
+        let delta = current.saturating_sub(&baseline);
+
+        assert!(!delta.by_model.contains_key("gpt-5"));
     }
 
     #[test]

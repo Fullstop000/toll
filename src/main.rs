@@ -7,6 +7,7 @@ mod kimi;
 mod output;
 mod pricing;
 mod usage;
+mod watch;
 
 use agent::Agent;
 use chrono::{DateTime, Local, TimeZone, Utc};
