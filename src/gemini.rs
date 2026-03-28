@@ -164,11 +164,7 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
             {
                 continue;
             }
-            // Accumulate timestamp delta before processing
-            if let Some(prev) = prev_ts {
-                usage.processing_time_ms +=
-                    dt.signed_duration_since(prev).num_milliseconds() as u64;
-            }
+            // Only update timestamp, don't count user idle time in processing
             prev_ts = Some(dt);
             usage.user_queries += 1;
             continue;
@@ -485,8 +481,8 @@ mod tests {
 
     #[test]
     fn parse_gemini_usage_accumulates_processing_time() {
-        // Messages at: 00:00:00, 00:00:01, 00:00:30, 00:01:00
-        // Deltas: 1s, 29s, 30s = 60_000ms total
+        // Messages at: 00:00:00 (user), 00:00:01 (gemini), 00:00:30 (user), 00:01:00 (gemini)
+        // Deltas: 1s (user→gemini) + 30s (user→gemini) = 31_000ms total (user idle time excluded)
         let session = json!({
             "startTime": "2026-03-15T00:00:00Z",
             "messages": [
@@ -525,8 +521,8 @@ mod tests {
 
         let usage = parse_gemini_session(&session, None);
 
-        // 1000ms + 29000ms + 30000ms = 60000ms
-        assert_eq!(usage.processing_time_ms, 60_000);
+        // 1000ms + 30000ms = 31000ms (user idle time between gemini response and next user message is excluded)
+        assert_eq!(usage.processing_time_ms, 31_000);
     }
 
     #[test]
