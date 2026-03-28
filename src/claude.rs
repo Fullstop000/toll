@@ -74,6 +74,8 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
     };
     let mut has_unknown_model = false;
     let mut prev_ts: Option<DateTime<Utc>> = None;
+    let mut prev_model: Option<String> = None;
+    let mut prev_model_valid: bool = false;
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
@@ -92,10 +94,21 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
         });
         let current_ts = ts_str.and_then(|ts| ts.parse::<DateTime<Utc>>().ok());
 
-        // Accumulate processing time delta
-        if let (Some(curr), Some(prev)) = (current_ts, prev_ts) {
-            let delta_ms = (curr - prev).num_milliseconds() as u64;
+        // Accumulate processing time delta (delta belongs to prev_model)
+        let delta_ms = if let (Some(curr), Some(prev)) = (current_ts, prev_ts) {
+            (curr - prev).num_milliseconds() as u64
+        } else {
+            0
+        };
+        if delta_ms > 0 {
             usage.processing_time_ms += delta_ms;
+            // Add delta to previous model's per-model processing time
+            if prev_model_valid {
+                if let Some(ref pm) = prev_model {
+                    let e = usage.by_model.entry(pm.clone()).or_default();
+                    e.processing_time_ms += delta_ms;
+                }
+            }
         }
         if current_ts.is_some() {
             prev_ts = current_ts;
@@ -137,15 +150,21 @@ pub fn parse_claude_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) ->
 
         // Cost + per-model breakdown. Skip internal synthetic values (e.g. "<synthetic>").
         let model = msg.get("model").and_then(|m| m.as_str()).unwrap_or("");
-        if !model.is_empty() && !model.starts_with('<') {
+        let model_valid = !model.is_empty() && !model.starts_with('<');
+        if model_valid {
             match pricing::lookup(model) {
                 Some(p) => {
                     let cost = p.cost(inp, cache_create, cache_read, out);
                     usage.cost_usd += cost;
-                    usage.record_model(model, inp, cache_create, cache_read, out, cost);
+                    usage.record_model(model, inp, cache_create, cache_read, out, cost, 0);
                 }
                 None => has_unknown_model = true,
             }
+        }
+        // Update prev_model for next iteration's delta attribution
+        if model_valid {
+            prev_model = Some(model.to_string());
+            prev_model_valid = pricing::lookup(&model).is_some();
         }
     }
 

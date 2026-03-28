@@ -209,7 +209,7 @@ fn parse_gemini_session(v: &Value, since: Option<DateTime<Utc>>) -> TokenUsage {
                 Some(p) => {
                     let cost = p.cost(pure_input, 0, cached, output);
                     usage.cost_usd += cost;
-                    usage.record_model(model, pure_input, 0, cached, output, cost);
+                    usage.record_model(model, pure_input, 0, cached, output, cost, 0);
                 }
                 None => has_unknown_model = true,
             },

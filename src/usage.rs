@@ -57,6 +57,7 @@ impl TokenUsage {
         cache_read: u64,
         out: u64,
         cost: f64,
+        processing_time_ms: u64,
     ) {
         let e = self.by_model.entry(model.to_string()).or_default();
         e.input_tokens += inp + cache_write + cache_read;
@@ -65,6 +66,7 @@ impl TokenUsage {
         e.output_tokens += out;
         e.sessions += 1;
         e.cost_usd += cost;
+        e.processing_time_ms += processing_time_ms;
     }
 
     pub fn total_tokens(&self) -> u64 {
@@ -177,11 +179,11 @@ mod tests {
     #[test]
     fn add_merges_by_model() {
         let mut a = TokenUsage::default();
-        a.record_model("model-a", 100, 0, 0, 10, 1.0);
+        a.record_model("model-a", 100, 0, 0, 10, 1.0, 0);
 
         let mut b = TokenUsage::default();
-        b.record_model("model-a", 200, 0, 0, 20, 2.0);
-        b.record_model("model-b", 50, 0, 0, 5, 0.5);
+        b.record_model("model-a", 200, 0, 0, 20, 2.0, 0);
+        b.record_model("model-b", 50, 0, 0, 5, 0.5, 0);
 
         a.add(&b);
 
@@ -195,12 +197,13 @@ mod tests {
     #[test]
     fn record_model_accumulates() {
         let mut u = TokenUsage::default();
-        u.record_model("gpt-5", 100, 0, 50, 10, 1.0);
-        u.record_model("gpt-5", 200, 0, 80, 20, 2.0);
+        u.record_model("gpt-5", 100, 0, 50, 10, 1.0, 1000);
+        u.record_model("gpt-5", 200, 0, 80, 20, 2.0, 2000);
         let m = &u.by_model["gpt-5"];
         assert_eq!(m.input_tokens, 430); // (100+0+50)+(200+0+80)
         assert_eq!(m.cached_input_tokens, 130);
         assert_eq!(m.sessions, 2);
+        assert_eq!(m.processing_time_ms, 3000);
         assert!((m.cost_usd - 3.0).abs() < 1e-9);
     }
 
@@ -273,10 +276,10 @@ mod tests {
     #[test]
     fn saturating_sub_clamps_models() {
         let mut current = TokenUsage::default();
-        current.record_model("gpt-5", 100, 0, 40, 20, 3.0);
+        current.record_model("gpt-5", 100, 0, 40, 20, 3.0, 0);
 
         let mut baseline = TokenUsage::default();
-        baseline.record_model("gpt-5", 150, 0, 60, 25, 4.0);
+        baseline.record_model("gpt-5", 150, 0, 60, 25, 4.0, 0);
 
         let delta = current.saturating_sub(&baseline);
 

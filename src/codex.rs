@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::thread;
 use walkdir::WalkDir;
 
@@ -63,7 +64,10 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
     let mut last_total: Option<Value> = None;
     let mut user_queries = 0u32;
     let mut prev_ts: Option<DateTime<Utc>> = None;
+    let mut prev_model: Option<String> = None;
+    let mut prev_model_valid: bool = false;
     let mut processing_time_ms: u64 = 0;
+    let mut model_processing_time: HashMap<String, u64> = HashMap::new();
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim();
@@ -99,9 +103,21 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
                     let ts = ts_str.with_timezone(&Utc);
                     if let Some(prev) = prev_ts {
                         let delta = ts.signed_duration_since(prev);
-                        processing_time_ms += delta.num_milliseconds() as u64;
+                        let delta_ms = delta.num_milliseconds() as u64;
+                        processing_time_ms += delta_ms;
+                        // Add delta to previous model's per-model processing time
+                        if prev_model_valid {
+                            if let Some(ref pm) = prev_model {
+                                *model_processing_time.entry(pm.clone()).or_insert(0) += delta_ms;
+                            }
+                        }
                     }
                     prev_ts = Some(ts);
+                    // Update prev_model for next iteration
+                    if let Some(ref m) = model {
+                        prev_model = Some(m.clone());
+                        prev_model_valid = crate::pricing::lookup(m).is_some();
+                    }
                 }
             }
             Some("event_msg") => {
@@ -159,6 +175,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
 
     // Populate per-model breakdown when model is known
     if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+        let model_proc_time = model_processing_time.get(m).copied().unwrap_or(0);
         usage.record_model(
             m,
             pure_input,
@@ -166,6 +183,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
             cached_input_tokens,
             output_tokens,
             cost_usd,
+            model_proc_time,
         );
     }
 

@@ -177,7 +177,7 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
         if let Some(p) = pricing {
             let cost = p.cost(inp_other, cache_create, cache_read, out);
             usage.cost_usd += cost;
-            usage.record_model(KIMI_MODEL, inp_other, cache_create, cache_read, out, cost);
+            usage.record_model(KIMI_MODEL, inp_other, cache_create, cache_read, out, cost, 0);
         }
     }
 

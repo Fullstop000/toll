@@ -335,7 +335,7 @@ mod tests {
             cost_usd: 1.25,
             ..Default::default()
         };
-        usage.record_model("gpt-5.4", 10_000, 0, 2_500, 500, 1.25);
+        usage.record_model("gpt-5.4", 10_000, 0, 2_500, 500, 1.25, 0);
 
         let rendered = render_summary_csv(&[("Codex", &usage)], NumberFormat::Compact);
 
