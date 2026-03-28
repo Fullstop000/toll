@@ -16,23 +16,29 @@ pub struct SnapshotDelta {
     pub by_day: DailyUsage,
 }
 
+fn has_activity(usage: &TokenUsage) -> bool {
+    usage.total_tokens() > 0
+        || usage.user_queries > 0
+        || usage.cost_usd > 0.0
+        || usage.unknown_cost_sessions > 0
+}
+
 pub fn diff_snapshot(baseline: &AgentSnapshot, current: &AgentSnapshot) -> SnapshotDelta {
     let mut delta = SnapshotDelta::default();
 
     for (session_id, session_usage) in current {
         let baseline_usage = baseline.get(session_id).cloned().unwrap_or_default();
-        let total_delta = session_usage.totals.saturating_sub(&baseline_usage.totals);
+        let mut total_delta = session_usage.totals.saturating_sub(&baseline_usage.totals);
+        if has_activity(&total_delta) {
+            total_delta.sessions = session_usage.totals.sessions.max(1);
+        }
         delta.total.add(&total_delta);
 
         for (date, usage) in &session_usage.by_day {
             let baseline_day = baseline_usage.by_day.get(date).cloned().unwrap_or_default();
-            let usage_delta = usage.saturating_sub(&baseline_day);
-            if usage_delta.total_tokens() > 0
-                || usage_delta.sessions > 0
-                || usage_delta.user_queries > 0
-                || usage_delta.cost_usd > 0.0
-                || usage_delta.unknown_cost_sessions > 0
-            {
+            let mut usage_delta = usage.saturating_sub(&baseline_day);
+            if has_activity(&usage_delta) {
+                usage_delta.sessions = usage.sessions.max(1);
                 add_daily_usage(&mut delta.by_day, *date, &usage_delta);
             }
         }
@@ -96,6 +102,7 @@ mod tests {
         assert_eq!(delta.total.input_tokens, 60);
         assert_eq!(delta.total.cached_input_tokens, 30);
         assert_eq!(delta.total.output_tokens, 6);
+        assert_eq!(delta.total.sessions, 1);
         assert_eq!(delta.total.user_queries, 1);
     }
 
@@ -129,6 +136,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 3, 28).expect("valid date");
 
         assert_eq!(delta.by_day[&date].input_tokens, 60);
+        assert_eq!(delta.by_day[&date].sessions, 1);
         assert_eq!(delta.by_day[&date].user_queries, 1);
     }
 }

@@ -69,6 +69,7 @@ Options:
   -v, --version      Show version information and exit
       --today        Show today's usage only
       --days <N>     Show last N days
+      --watch        Watch usage deltas from now until interrupted
       --claude       Show Claude stats only
       --codex        Show Codex stats only
       --kimi         Show Kimi Code stats only
@@ -85,6 +86,9 @@ Examples:
   toll --today      # today only
   toll --days 7     # last 7 days
   toll --by-day --days 7  # daily summary table
+  toll --watch      # live delta stats until Ctrl-C
+  toll --watch --json  # final JSON delta on exit
+  toll --watch --by-day  # live per-day delta stats
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
@@ -93,6 +97,8 @@ Examples:
   toll --json       # machine-readable JSON
   toll --csv        # terminal CSV export
 ```
+
+Watch mode reports only usage accumulated after watch start, including additional activity on sessions that were already open.
 
 ## Example output
 
