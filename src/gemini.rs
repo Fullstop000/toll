@@ -7,6 +7,7 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
+use crate::watch::{AgentSnapshot, SessionUsage};
 
 /// Gemini CLI usage collector.
 pub struct GeminiAgent;
@@ -38,6 +39,14 @@ impl Agent for GeminiAgent {
     ) -> DailyUsageReport {
         collect_gemini_daily_usage(data_dir, since)
     }
+
+    fn collect_snapshot(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+        collect_gemini_snapshot(data_dir, since)
+    }
+}
+
+fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
+    Some(path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/"))
 }
 
 fn collect_gemini_usage(data_dir: &Path, since: Option<DateTime<Utc>>) -> TokenUsage {
@@ -85,6 +94,36 @@ fn collect_gemini_daily_usage(data_dir: &Path, since: Option<DateTime<Utc>>) -> 
     }
 
     report
+}
+
+fn collect_gemini_snapshot(data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+    let mut snapshot = AgentSnapshot::default();
+
+    if !data_dir.exists() {
+        return snapshot;
+    }
+
+    for entry in WalkDir::new(data_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+    {
+        if entry.path().to_string_lossy().contains("/chats/")
+            && let Ok(content) = fs::read_to_string(entry.path())
+            && let Ok(v) = serde_json::from_str::<Value>(&content)
+        {
+            let totals = parse_gemini_session(&v, since);
+            let by_day = parse_gemini_session_by_day(&v, since);
+            if totals.total_tokens() == 0 && totals.user_queries == 0 && by_day.is_empty() {
+                continue;
+            }
+
+            let key = snapshot_key(data_dir, entry.path()).expect("session path should be relative");
+            snapshot.insert(key, SessionUsage { totals, by_day });
+        }
+    }
+
+    snapshot
 }
 
 fn parse_timestamp(msg: &Value, session_start: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
@@ -254,6 +293,17 @@ fn parse_gemini_session_by_day(v: &Value, since: Option<DateTime<Utc>>) -> Daily
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
+    }
 
     #[test]
     fn sums_all_gemini_messages_in_a_session() {
@@ -410,5 +460,45 @@ mod tests {
         let usage = parse_gemini_session(&session, None);
         assert_eq!(usage.sessions, 1);
         assert_eq!(usage.unknown_cost_sessions, 1);
+    }
+
+    #[test]
+    fn collect_gemini_snapshot_uses_chat_relative_path() {
+        let root = unique_temp_dir("toll-gemini-snapshot-test");
+        let chats_dir = root.join("workspace/chats");
+        fs::create_dir_all(&chats_dir).expect("should create gemini chats dir");
+
+        fs::write(
+            chats_dir.join("chat-1.json"),
+            json!({
+                "startTime": "2026-03-15T00:00:00Z",
+                "messages": [
+                    {
+                        "type": "user",
+                        "timestamp": "2026-03-15T00:00:00Z",
+                        "content": [{"text": "prompt"}]
+                    },
+                    {
+                        "type": "gemini",
+                        "timestamp": "2026-03-15T00:00:01Z",
+                        "model": "gemini-3.1-flash",
+                        "tokens": {"input": 100, "output": 10, "cached": 0}
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("should write gemini chat");
+
+        let snapshot = collect_gemini_snapshot(&root, None);
+        let session = snapshot
+            .get("workspace/chats/chat-1.json")
+            .expect("session should exist");
+
+        assert_eq!(session.totals.user_queries, 1);
+        assert_eq!(session.totals.output_tokens, 10);
+        assert_eq!(session.by_day.len(), 1);
+
+        fs::remove_dir_all(root).expect("should clean temp gemini dir");
     }
 }

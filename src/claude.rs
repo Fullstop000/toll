@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 
 use crate::pricing;
 use crate::usage::{DailyUsage, DailyUsageReport, TokenUsage, add_daily_usage};
+use crate::watch::{AgentSnapshot, SessionUsage};
 
 fn is_top_level_user_query(v: &Value) -> bool {
     v.get("type").and_then(|t| t.as_str()) == Some("user")
@@ -50,6 +51,14 @@ impl Agent for ClaudeAgent {
     ) -> DailyUsageReport {
         collect_claude_daily_usage(data_dir, since)
     }
+
+    fn collect_snapshot(&self, data_dir: &Path, since: Option<DateTime<Utc>>) -> AgentSnapshot {
+        collect_claude_snapshot(data_dir, since)
+    }
+}
+
+fn snapshot_key(root: &Path, path: &Path) -> Option<String> {
+    Some(path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/"))
 }
 
 /// Parse Claude usage entries from any BufRead source.
@@ -257,6 +266,45 @@ pub fn collect_claude_usage(projects_dir: &Path, since: Option<DateTime<Utc>>) -
     total
 }
 
+pub fn collect_claude_snapshot(
+    projects_dir: &Path,
+    since: Option<DateTime<Utc>>,
+) -> AgentSnapshot {
+    let mut snapshot = AgentSnapshot::default();
+
+    if !projects_dir.exists() {
+        return snapshot;
+    }
+
+    for entry in WalkDir::new(projects_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.file_name()
+                    .to_str()
+                    .map(|n| n.ends_with(".jsonl"))
+                    .unwrap_or(false)
+        })
+    {
+        let path = entry.path();
+        let key = snapshot_key(projects_dir, path).expect("session path should be relative");
+        let totals = parse_claude_session(path, since);
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        let by_day = parse_claude_lines_by_day(BufReader::new(file), since);
+
+        if totals.total_tokens() == 0 && totals.user_queries == 0 && by_day.is_empty() {
+            continue;
+        }
+
+        snapshot.insert(key, SessionUsage { totals, by_day });
+    }
+
+    snapshot
+}
+
 /// Collect Claude usage aggregated by local calendar date.
 pub fn collect_claude_daily_usage(
     projects_dir: &Path,
@@ -298,7 +346,10 @@ pub fn collect_claude_daily_usage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Cursor;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn cursor(s: &str) -> Cursor<Vec<u8>> {
         Cursor::new(s.as_bytes().to_vec())
@@ -338,6 +389,14 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
     }
 
     #[test]
@@ -485,5 +544,33 @@ mod tests {
         assert_eq!(by_day[&date].sessions, 1);
         assert_eq!(by_day[&date].unknown_cost_sessions, 1);
         assert_eq!(crate::display::fmt_cost(&by_day[&date]), "unknown");
+    }
+
+    #[test]
+    fn collect_claude_snapshot_uses_relative_file_path() {
+        let root = unique_temp_dir("toll-claude-snapshot-test");
+        let session_dir = root.join("project-a");
+        fs::create_dir_all(&session_dir).expect("should create claude snapshot dir");
+
+        fs::write(
+            session_dir.join("session.jsonl"),
+            format!(
+                "{}\n{}\n",
+                user_line("2026-03-09T00:00:00Z", "prompt"),
+                make_line("2026-03-09T00:00:01Z", "claude-sonnet-4-6", 100, 0, 0, 10),
+            ),
+        )
+        .expect("should write claude session");
+
+        let snapshot = collect_claude_snapshot(&root, None);
+        let session = snapshot
+            .get("project-a/session.jsonl")
+            .expect("session should exist");
+
+        assert_eq!(session.totals.user_queries, 1);
+        assert_eq!(session.totals.output_tokens, 10);
+        assert_eq!(session.by_day.len(), 1);
+
+        fs::remove_dir_all(root).expect("should clean temp claude dir");
     }
 }
