@@ -10,7 +10,7 @@ pub enum NumberFormat {
 }
 
 /// Summary headers used by multi-agent tables.
-const MULTI_SUMMARY_HEADERS: [&str; 9] = [
+const MULTI_SUMMARY_HEADERS: [&str; 10] = [
     "Sessions",
     "Queries",
     "Input",
@@ -20,6 +20,7 @@ const MULTI_SUMMARY_HEADERS: [&str; 9] = [
     "Output",
     "Total",
     "Cost",
+    "TPS",
 ];
 
 /// Format a raw integer with comma separators.
@@ -91,8 +92,16 @@ fn fmt_cached_tokens(cached: u64, format: NumberFormat) -> String {
     fmt_num_with_format(cached, format)
 }
 
+/// Format tokens-per-second cell.
+pub fn fmt_tps(usage: &TokenUsage) -> String {
+    match usage.tps() {
+        None => "—".to_string(),
+        Some(tps) => fmt_num_with_format(tps as u64, NumberFormat::Compact),
+    }
+}
+
 /// Render all summary cells for one usage snapshot.
-fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 9] {
+fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 10] {
     [
         fmt_num(usage.sessions as u64),
         fmt_num(usage.user_queries as u64),
@@ -103,6 +112,7 @@ fn summary_values(usage: &TokenUsage, format: NumberFormat) -> [String; 9] {
         fmt_num_with_format(usage.output_tokens, format),
         fmt_num_with_format(usage.total_tokens(), format),
         fmt_cost(usage),
+        fmt_tps(usage),
     ]
 }
 
@@ -123,17 +133,18 @@ fn render_model_breakdown(by_model: &BTreeMap<String, TokenUsage>, format: Numbe
 
     let col_w = 15usize;
     let label_w = 28usize;
-    let total_w = label_w + 2 + (col_w + 2) * 3;
+    let total_w = label_w + 2 + (col_w + 2) * 4;
 
     let mut out = String::new();
     out.push_str("  By model:\n");
     out.push_str(&format!("  {}\n", "─".repeat(total_w)));
     out.push_str(&format!(
-        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}\n",
+        "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}  {:>cw$}\n",
         "Model",
         "Tokens",
         "Output",
         "Cost",
+        "TPS",
         lw = label_w,
         cw = col_w
     ));
@@ -146,11 +157,12 @@ fn render_model_breakdown(by_model: &BTreeMap<String, TokenUsage>, format: Numbe
             model.clone()
         };
         out.push_str(&format!(
-            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}\n",
+            "  {:<lw$} {:>cw$}  {:>cw$}  {:>cw$}  {:>cw$}\n",
             label,
             fmt_num_with_format(usage.total_tokens(), format),
             fmt_num_with_format(usage.output_tokens, format),
             fmt_cost(usage),
+            fmt_tps(usage),
             lw = label_w,
             cw = col_w
         ));
@@ -174,6 +186,7 @@ pub fn render_single_table(label: &str, usage: &TokenUsage, format: NumberFormat
         ("Output tokens", values[6].as_str()),
         ("Total tokens", values[7].as_str()),
         ("Estimated cost (USD)", values[8].as_str()),
+        ("TPS", values[9].as_str()),
     ];
     let label_w = rows
         .iter()
@@ -203,7 +216,7 @@ pub fn render_single_table(label: &str, usage: &TokenUsage, format: NumberFormat
             lw = label_w,
             cw = col_w
         ));
-        if matches!(idx, 1 | 5 | 7) {
+        if matches!(idx, 1 | 5 | 8) {
             out.push_str(&format!("  {}\n", "─".repeat(total_w)));
         }
     }
@@ -228,7 +241,7 @@ pub fn print_single(label: &str, usage: &TokenUsage, format: NumberFormat) {
 /// Render the summary table for any number of agents plus the combined total.
 pub fn render_multi_table(usages: &[(&str, &TokenUsage)], format: NumberFormat) -> String {
     let combined = combined_usage(usages);
-    let mut rows: Vec<(&str, [String; 9])> = usages
+    let mut rows: Vec<(&str, [String; 10])> = usages
         .iter()
         .map(|(name, usage)| (*name, summary_values(usage, format)))
         .collect();
@@ -315,9 +328,10 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         "Output",
         "Total",
         "Cost",
+        "TPS",
     ];
 
-    let rows: Vec<[String; 9]> = by_day
+    let rows: Vec<[String; 10]> = by_day
         .iter()
         .rev()
         .map(|(date, usage)| {
@@ -331,6 +345,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
                 fmt_num_with_format(usage.output_tokens, format),
                 fmt_num_with_format(usage.total_tokens(), format),
                 fmt_cost(usage),
+                fmt_tps(usage),
             ]
         })
         .collect();
@@ -343,7 +358,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
     }
 
     out.push_str(&format!(
-        "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}\n",
+        "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}  {:>w9$}\n",
         headers[0],
         headers[1],
         headers[2],
@@ -353,6 +368,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         headers[6],
         headers[7],
         headers[8],
+        headers[9],
         w0 = widths[0],
         w1 = widths[1],
         w2 = widths[2],
@@ -362,6 +378,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
         w6 = widths[6],
         w7 = widths[7],
         w8 = widths[8],
+        w9 = widths[9],
     ));
 
     let rule_len: usize = widths.iter().sum::<usize>() + 2 * (widths.len() - 1);
@@ -369,7 +386,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
 
     for row in rows {
         out.push_str(&format!(
-            "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}\n",
+            "  {:<w0$}  {:>w1$}  {:>w2$}  {:>w3$}  {:>w4$}  {:>w5$}  {:>w6$}  {:>w7$}  {:>w8$}  {:>w9$}\n",
             row[0],
             row[1],
             row[2],
@@ -379,6 +396,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
             row[6],
             row[7],
             row[8],
+            row[9],
             w0 = widths[0],
             w1 = widths[1],
             w2 = widths[2],
@@ -388,6 +406,7 @@ pub fn render_daily_table(period: &str, by_day: &DailyUsage, format: NumberForma
             w6 = widths[6],
             w7 = widths[7],
             w8 = widths[8],
+            w9 = widths[9],
         ));
     }
 
@@ -509,6 +528,21 @@ mod tests {
     }
 
     #[test]
+    fn render_multi_table_includes_tps_column() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 500_000,
+            processing_time_ms: 1000,
+            sessions: 1,
+            cost_usd: 1.0,
+            ..Default::default()
+        };
+        let rendered = render_multi_table(&[("Claude Code", &usage)], NumberFormat::Full);
+        assert!(rendered.contains("1,500,000"));
+        assert!(rendered.contains("TPS"));
+    }
+
+    #[test]
     fn render_multi_table_supports_three_agents() {
         let claude = TokenUsage {
             input_tokens: 100,
@@ -551,6 +585,7 @@ mod tests {
         assert!(rendered.contains("Hit Rate"));
         assert!(rendered.contains("Net Input"));
         assert!(rendered.contains("Cost"));
+        assert!(rendered.contains("TPS"));
         assert!(!rendered.contains("Input tokens"));
         assert!(!rendered.contains("Output tokens"));
         assert!(!rendered.contains("Total tokens"));
