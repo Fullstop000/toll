@@ -287,6 +287,19 @@ static PRICING: &[(&str, ModelPricing)] = &[
             output_per_m: 2.50,
         },
     ),
+    // ── MiniMax ─────────────────────────────────────────────────────────────
+    // MiniMax-M2.7  ¥2.1 in / ¥8.4 out / cache_read ¥0.42 / cache_write ¥2.625 per 1M
+    // (approx $0.29 in / $1.17 out / $0.058 cache_read / $0.36 cache_write at 7.2 CNY/USD)
+    // Ref: https://platform.minimaxi.com/docs/guides/pricing-paygo
+    (
+        "minimax-m2.7",
+        ModelPricing {
+            input_per_m: 0.29,
+            cache_write_per_m: 0.36,
+            cache_read_per_m: 0.058,
+            output_per_m: 1.17,
+        },
+    ),
     // ── Google Gemini ────────────────────────────────────────────────────────
     // Gemini 3.1 Pro  $2.00 in / $12.00 out  cache_read $0.20
     (
