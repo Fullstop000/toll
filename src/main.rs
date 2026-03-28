@@ -270,7 +270,10 @@ fn render_watch_table_frame(
     if final_frame {
         out.push_str("  Watch stopped.\n");
     } else {
-        out.push_str("  Press Ctrl-C to stop.\n");
+        out.push_str(&format!(
+            "  Refreshing every {}s. Press Ctrl-C to stop.\n",
+            WATCH_REFRESH_INTERVAL.as_secs()
+        ));
     }
 
     out
@@ -679,6 +682,22 @@ mod tests {
         assert_eq!(rows[0].usage.cached_input_tokens, 30);
         assert_eq!(rows[0].usage.output_tokens, 6);
         assert_eq!(rows[0].usage.user_queries, 0);
+    }
+
+    #[test]
+    fn render_watch_table_frame_mentions_refresh_interval() {
+        let args = Args::try_parse_from(["toll", "--watch"]).expect("should parse");
+        let frame = render_watch_table_frame(
+            &args,
+            NumberFormat::Full,
+            Local::now(),
+            Local::now(),
+            &[],
+            &DailyUsage::default(),
+            false,
+        );
+
+        assert!(frame.contains("Refreshing every 2s."));
     }
 
     #[test]
