@@ -82,14 +82,14 @@ impl TokenUsage {
         self.unknown_cost_sessions > 0
     }
 
-    /// Tokens per second = total_tokens / processing_time_ms * 1000
+    /// Tokens per second = output_tokens / processing_time_ms * 1000
     /// Returns None if processing_time_ms is 0.
     #[allow(dead_code)]
     pub fn tps(&self) -> Option<f64> {
         if self.processing_time_ms == 0 {
             return None;
         }
-        Some(self.total_tokens() as f64 / self.processing_time_ms as f64 * 1000.0)
+        Some(self.output_tokens as f64 / self.processing_time_ms as f64 * 1000.0)
     }
 
     pub fn saturating_sub(&self, baseline: &TokenUsage) -> TokenUsage {
