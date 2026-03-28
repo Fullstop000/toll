@@ -35,6 +35,8 @@ use usage::{DailyUsage, TokenUsage, add_daily_usage};
   toll --today      # today only
   toll --days 7     # last 7 days
   toll --by-day --days 7  # daily summary table
+  toll --watch            # live delta stats until Ctrl-C
+  toll --watch --by-day   # live per-day delta stats
   toll --claude     # Claude only
   toll --codex      # Codex only
   toll --kimi       # Kimi Code only
@@ -53,6 +55,14 @@ struct Args {
 
     #[arg(long, value_name = "N", help = "Show last N days")]
     days: Option<u32>,
+
+    #[arg(
+        long,
+        conflicts_with = "today",
+        conflicts_with = "days",
+        help = "Watch usage deltas from now until interrupted"
+    )]
+    watch: bool,
 
     #[arg(long, help = "Show Claude stats only")]
     claude: bool,
@@ -367,6 +377,29 @@ mod tests {
     fn parses_by_day_flag() {
         let args = Args::try_parse_from(["toll", "--by-day"]).expect("should parse");
         assert!(args.by_day);
+    }
+
+    #[test]
+    fn parses_watch_flag() {
+        let args = Args::try_parse_from(["toll", "--watch"]).expect("should parse");
+        assert!(args.watch);
+    }
+
+    #[test]
+    fn parses_watch_with_by_day() {
+        let args = Args::try_parse_from(["toll", "--watch", "--by-day"]).expect("should parse");
+        assert!(args.watch);
+        assert!(args.by_day);
+    }
+
+    #[test]
+    fn rejects_watch_with_today() {
+        assert!(Args::try_parse_from(["toll", "--watch", "--today"]).is_err());
+    }
+
+    #[test]
+    fn rejects_watch_with_days() {
+        assert!(Args::try_parse_from(["toll", "--watch", "--days", "7"]).is_err());
     }
 
     #[test]
