@@ -129,6 +129,7 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
         ..Default::default()
     };
     let pricing = pricing::lookup(KIMI_MODEL);
+    let mut prev_ts: Option<DateTime<Utc>> = None;
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim().to_string();
@@ -153,6 +154,14 @@ pub fn parse_kimi_lines(reader: impl BufRead, since: Option<DateTime<Utc>>) -> T
         let Some(tu) = status_update_tokens(&v, since) else {
             continue;
         };
+        let Some(dt) = v.get("timestamp").and_then(parse_unix_ts) else {
+            continue;
+        };
+        if let Some(prev) = prev_ts {
+            let delta_ms = dt.signed_duration_since(prev).num_milliseconds();
+            usage.processing_time_ms += delta_ms as u64;
+        }
+        prev_ts = Some(dt);
         let KimiTokens {
             inp_other,
             cache_read,
@@ -442,6 +451,20 @@ mod tests {
         let usage = parse_kimi_lines(cursor(&data), Some(since));
         assert_eq!(usage.input_tokens, 100);
         assert_eq!(usage.output_tokens, 10);
+    }
+
+    #[test]
+    fn parse_kimi_lines_accumulates_processing_time() {
+        // TurnBegin at t=0, StatusUpdate at t=2 (2s delta), StatusUpdate at t=13 (11s delta)
+        // Total processing_time_ms = 11000 ms (TurnBegin doesn't count as a StatusUpdate)
+        let data = format!(
+            "{}\n{}\n{}\n",
+            turn_begin_line(0.0, "first prompt"),
+            make_line(2.0, 100, 0, 0, 10),
+            make_line(13.0, 200, 0, 0, 20),
+        );
+        let usage = parse_kimi_lines(cursor(&data), None);
+        assert_eq!(usage.processing_time_ms, 11_000);
     }
 
     #[test]
