@@ -62,6 +62,8 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
     let mut model: Option<String> = None;
     let mut last_total: Option<Value> = None;
     let mut user_queries = 0u32;
+    let mut prev_ts: Option<DateTime<Utc>> = None;
+    let mut processing_time_ms: u64 = 0;
 
     for line in reader.lines().map_while(Result::ok) {
         let line = line.trim();
@@ -85,6 +87,21 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
                         .and_then(|m| m.as_str())
                 {
                     model = Some(m.to_string());
+                }
+
+                // Extract timestamp and accumulate delta
+                if let Some(ts_str) = v
+                    .get("payload")
+                    .and_then(|p| p.get("timestamp"))
+                    .and_then(|t| t.as_str())
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                {
+                    let ts = ts_str.with_timezone(&Utc);
+                    if let Some(prev) = prev_ts {
+                        let delta = ts.signed_duration_since(prev);
+                        processing_time_ms += delta.num_milliseconds() as u64;
+                    }
+                    prev_ts = Some(ts);
                 }
             }
             Some("event_msg") => {
@@ -136,6 +153,7 @@ pub fn parse_codex_lines(reader: impl BufRead) -> Option<TokenUsage> {
         user_queries,
         cost_usd,
         unknown_cost_sessions,
+        processing_time_ms,
         ..Default::default()
     };
 
@@ -339,6 +357,14 @@ mod tests {
         .to_string()
     }
 
+    fn turn_context_line_with_timestamp(model: &str, timestamp: &str) -> String {
+        serde_json::json!({
+            "type": "turn_context",
+            "payload": { "turn_id": "abc", "model": model, "timestamp": timestamp }
+        })
+        .to_string()
+    }
+
     fn task_started_line(turn_id: &str) -> String {
         serde_json::json!({
             "type": "event_msg",
@@ -449,6 +475,21 @@ mod tests {
         let usage = parse_codex_lines(cursor(&data)).expect("should parse");
         assert!((usage.cost_usd - 2.50).abs() < 0.001);
         assert_eq!(usage.unknown_cost_sessions, 0);
+    }
+
+    #[test]
+    fn parse_codex_lines_accumulates_processing_time() {
+        // Turn context timestamps are 1 second apart
+        // Deltas: (T2-T1) + (T3-T2) = 1000 + 1000 = 2000ms
+        let data = format!(
+            "{}\n{}\n{}\n{}\n",
+            turn_context_line_with_timestamp("gpt-4o", "2026-03-28T10:00:00Z"),
+            turn_context_line_with_timestamp("gpt-4o", "2026-03-28T10:00:01Z"),
+            turn_context_line_with_timestamp("gpt-4o", "2026-03-28T10:00:02Z"),
+            token_count_line(100, 0, 10),
+        );
+        let usage = parse_codex_lines(cursor(&data)).expect("should parse");
+        assert_eq!(usage.processing_time_ms, 2000);
     }
 
     #[test]
