@@ -300,6 +300,15 @@ static PRICING: &[(&str, ModelPricing)] = &[
             output_per_m: 1.17,
         },
     ),
+    (
+        "minimax-m2.7-highspeed",
+        ModelPricing {
+            input_per_m: 0.29,
+            cache_write_per_m: 0.36,
+            cache_read_per_m: 0.058,
+            output_per_m: 1.17,
+        },
+    ),
     // ── Google Gemini ────────────────────────────────────────────────────────
     // Gemini 3.1 Pro  $2.00 in / $12.00 out  cache_read $0.20
     (
